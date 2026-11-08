@@ -1,0 +1,70 @@
+{
+  "name": "hero-boost",
+  "version": "0.2.0",
+  "description": "Seu Windows no ritmo de você. Otimizações locais, transparentes e reversíveis.",
+  "author": "Hero Boost",
+  "license": "UNLICENSED",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs",
+    "check": "node scripts/check.cjs",
+    "test:native": "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/test-native.ps1",
+    "smoke": "electron . --smoke-test",
+    "pack": "electron-builder --win dir",
+    "dist": "electron-builder --win nsis portable"
+  },
+  "devDependencies": {
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0"
+  },
+  "overrides": {
+    "minimatch@>=7 <11.0.1": "11.0.1"
+  },
+  "build": {
+    "appId": "br.com.heroboost.desktop",
+    "productName": "Hero Boost",
+    "asar": true,
+    "asarUnpack": ["node_modules/node-hid/**"],
+    "npmRebuild": false,
+    "publish": [{"provider":"github","owner":"odesignerfelipe","repo":"heroboost","releaseType":"draft"}],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*",
+      "native/settings.json",
+      "ui/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native",
+        "to": "native"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis", "portable"
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "icon": "ui/assets/icon.ico",
+      "signExecutable": false
+    },
+    "portable": {
+      "artifactName": "Hero-Boost-${version}-Windows.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "Hero-Boost-${version}-Setup.exe"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11",
+    "node-hid": "3.4.0"
+  }
+}
