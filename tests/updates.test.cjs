@@ -25,6 +25,12 @@ test('concurrent checks share the request and a discovered update never download
   assert.equal(f.updates.state.status,'available');assert.equal(f.updates.state.version,'0.3.2');assert.equal(f.downloads,0);assert.equal(f.updater.autoDownload,false);assert.equal(f.updater.autoInstallOnAppQuit,false);
   assert.equal((await f.updates.checkIfDue(0)).status,'available');assert.equal(f.downloads,0);
 });
+
+test('the opening delay does not cause the next 30-minute poll to be skipped',async()=>{
+  const f=fixture();f.updates.start();f.advance(10000);f.scheduled[0].fn();await f.updates.checkPromise;
+  f.advance(30*60000-10000);f.scheduled[1].fn();await f.updates.checkPromise;assert.equal(f.checks,2);
+  f.advance(30*60000);f.scheduled[1].fn();await f.updates.checkPromise;assert.equal(f.checks,3);
+});
 test('download progress and verified package survive subsequent checks until explicit installation',async()=>{
   const f=fixture();await assert.rejects(()=>f.updates.download(),/Nenhuma/);assert.throws(()=>f.updates.install(),/Baixe/);
   f.updater.emit('update-available',{version:'0.3.2'});await f.updates.download();assert.equal(f.downloads,1);assert.equal(f.installs,0);assert.equal(f.updates.state.status,'downloaded');

@@ -31,7 +31,7 @@ class Updates {
   start(){
     if(!this.updater||this.initialTimer||this.pollTimer)return;
     this.initialTimer=this.clock.setTimeout(()=>{this.initialTimer=null;this.checkIfDue();},10000);
-    this.pollTimer=this.clock.setInterval(()=>this.checkIfDue(30*60000),30*60000);
+    this.pollTimer=this.clock.setInterval(()=>this.checkIfDue(0),30*60000);
     this.initialTimer?.unref?.();this.pollTimer?.unref?.();
   }
   stop(){this.clock.clearTimeout(this.initialTimer);this.clock.clearInterval(this.pollTimer);this.initialTimer=null;this.pollTimer=null;}
