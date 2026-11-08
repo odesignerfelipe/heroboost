@@ -1,7 +1,7 @@
 'use strict';
 const {randomUUID}=require('node:crypto');
 const {isProtectedProcess}=require('./engine.cjs');
-const array=value=>Array.isArray(value)?value:value?[value]:[];
+const array=value=>(Array.isArray(value)?value:value?[value]:[]).filter(item=>item!==null&&item!==undefined);
 const stable=value=>JSON.stringify(value);
 const serviceValue=s=>s?{start:s.start,state:s.state,delayed:s.start==='Auto'?s.delayed:false}:null;
 class Advanced {

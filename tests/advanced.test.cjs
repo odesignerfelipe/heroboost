@@ -1,6 +1,7 @@
 'use strict';
 const {test}=require('node:test');const assert=require('node:assert/strict');
-const {Engine}=require('../electron/engine.cjs');const {Advanced}=require('../electron/advanced.cjs');
+const {Engine}=require('../electron/engine.cjs');const {Advanced,array}=require('../electron/advanced.cjs');
+test('missing optional resources are omitted, not exposed as null rows',()=>{assert.deepEqual(array([null,{id:'WSearch'},undefined]),[{id:'WSearch'}]);assert.deepEqual(array(null),[]);});
 function fixture(){
   const model={service:{start:'Auto',state:'Running',delayed:true},task:{enabled:true},network:{AutoTuningLevelLocal:'Restricted'},timer:false,processes:[]};
   const store={data:{journal:[],focusApps:[],backgroundApps:[],focusEnabled:false,restorePoint:{attempted:true}},save:async()=>{persisted=structuredClone(store.data);}};let persisted=structuredClone(store.data);

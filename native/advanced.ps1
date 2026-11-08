@@ -60,7 +60,7 @@ function Invoke-HeroAdvanced($operation,$d){
       if($code -notin @(0,3010)){throw (($output -join "`n")+' Código: '+$code)}
       return @{log=($output -join "`n");reboot=($code -eq 3010)}
     }
-    'services' {return @($heroServices | ForEach-Object {Get-HeroService $_})}
+    'services' {return @($heroServices | ForEach-Object {Get-HeroService $_} | Where-Object {$null -ne $_})}
     'service' {return Get-HeroService $d.id}
     'setService' {
       Assert-HeroAdmin;$current=Get-HeroService $d.id;if(-not $current){throw 'Serviço não instalado.'}
@@ -71,7 +71,7 @@ function Invoke-HeroAdvanced($operation,$d){
       if($d.snapshot.state -eq 'Stopped'){Stop-Service -Name $d.id -ErrorAction Stop}else{Start-Service -Name $d.id -ErrorAction Stop}
       return Get-HeroService $d.id
     }
-    'tasks' {return @($heroTasks | ForEach-Object {Get-HeroTask $_})}
+    'tasks' {return @($heroTasks | ForEach-Object {Get-HeroTask $_} | Where-Object {$null -ne $_})}
     'task' {return Get-HeroTask $d.id}
     'setTask' {
       Assert-HeroAdmin;$task=Get-HeroTask $d.id;if(-not $task){throw 'Tarefa indisponível.'}

@@ -1,10 +1,10 @@
-# Hero Boost 0.2.0
+# Hero Boost 0.2.1
 
 Aplicativo desktop para Windows 10/11 x64. Interface em português com a identidade fornecida: escudo HB, laranja `#FF6A00` / `#FF8A1F`, grafite e azul elétrico `#00D6FF`. Implementação independente, inspirada nas categorias do [Dilera Boost](https://www.dileraboost.com.br/).
 
 ## Usar no Windows
 
-Preferencialmente execute **`release/Hero-Boost-0.2.0-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`release/Hero-Boost-0.2.0-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
+Preferencialmente execute **`release/Hero-Boost-0.2.1-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`release/Hero-Boost-0.2.1-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
 
 1. Abra o Hero e confira o diagnóstico.
 2. Em **Perfis de uso**, revise o perfil adequado à sua máquina. Aplique somente depois de ler as escolhas.

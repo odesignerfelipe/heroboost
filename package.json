@@ -1,6 +1,6 @@
 {
   "name": "hero-boost",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Seu Windows no ritmo de você. Otimizações locais, transparentes e reversíveis.",
   "author": "Hero Boost",
   "license": "UNLICENSED",
@@ -25,9 +25,18 @@
     "appId": "br.com.heroboost.desktop",
     "productName": "Hero Boost",
     "asar": true,
-    "asarUnpack": ["node_modules/node-hid/**"],
+    "asarUnpack": [
+      "node_modules/node-hid/**"
+    ],
     "npmRebuild": false,
-    "publish": [{"provider":"github","owner":"odesignerfelipe","repo":"heroboost","releaseType":"draft"}],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "odesignerfelipe",
+        "repo": "heroboost",
+        "releaseType": "draft"
+      }
+    ],
     "directories": {
       "output": "release"
     },
@@ -45,7 +54,8 @@
     ],
     "win": {
       "target": [
-        "nsis", "portable"
+        "nsis",
+        "portable"
       ],
       "requestedExecutionLevel": "asInvoker",
       "icon": "ui/assets/icon.ico",
