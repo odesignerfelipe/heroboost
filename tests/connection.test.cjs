@@ -18,4 +18,5 @@ test('QoS snapshots normalize missing state and stable types for exact rollback'
   const c=new Connection('',{data:{},save:async()=>{}},{call:async()=>null});
   assert.deepEqual(c.qosValue(null),{exists:false});
   assert.deepEqual(c.qosValue({exists:true,path:'C:\\Games\\CS2.exe',protocol:'UDP',dscp:'46',rate:'0'}),{exists:true,path:'c:\\games\\cs2.exe',protocol:'UDP',dscp:46,rate:0});
+  assert.equal(c.qosValue({exists:true,path:'C:\\Apps\\upload.exe',protocol:'None',dscp:-1,rate:2000000}).protocol,'Both');
 });

@@ -27,7 +27,7 @@ function assess(result){
 class Connection {
   constructor(script,store,bridge){this.script=script;this.store=store;this.bridge=bridge;this.running=false;store.data.connection ||= {reports:[]};}
   call(operation,payload={},bridge=this.bridge){return bridge.call('network',{operation,payload});}
-  qosValue(value){return value?.exists?{exists:true,path:value.path.toLowerCase(),protocol:value.protocol,dscp:Number(value.dscp),rate:Number(value.rate)}:{exists:false};}
+  qosValue(value){return value?.exists?{exists:true,path:value.path.toLowerCase(),protocol:value.protocol==='None'?'Both':value.protocol,dscp:Number(value.dscp),rate:Number(value.rate)}:{exists:false};}
   async qosSnapshot(id){return this.qosValue(await this.call('qos',{id}));}
   async qosWrite(id,snapshot){return this.qosValue(await this.call('setQos',{id,snapshot}));}
   async run(target,trace=true){

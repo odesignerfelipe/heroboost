@@ -68,3 +68,19 @@ test('admin QoS creates, reads and removes only a disposable application policy'
     assert.equal(path.dirname(path.resolve(directory)),process.cwd());await fs.rm(directory,{recursive:true,force:true});
   }
 });
+
+test('CI verifies the CS2 UDP DSCP policy against the Windows provider',async t=>{
+  if(process.platform!=='win32'||process.env.GITHUB_ACTIONS!=='true'){t.skip('Uses only the disposable Windows CI machine');return;}
+  const fs=require('node:fs/promises');const bridge=new WindowsBridge(path.join(__dirname,'..','native','bridge.ps1'));t.after(()=>bridge.close());
+  const directory=await fs.mkdtemp(path.join(process.cwd(),'.qa-qos-'));
+  const executable=path.join(directory,'cs2.exe');await fs.writeFile(executable,'MZfixture, never executed');
+  const id='HeroBoost-CS2',call=(operation,payload={})=>bridge.call('network',{operation,payload});
+  assert.deepEqual(await call('qos',{id}),{exists:false});
+  try{
+    const actual=await call('setQos',{id,snapshot:{exists:true,path:executable,protocol:'UDP',dscp:46,rate:0}});
+    assert.equal(actual.exists,true);assert.equal(actual.path.toLowerCase(),executable.toLowerCase());assert.equal(actual.protocol,'UDP');assert.equal(actual.dscp,46);assert.equal(actual.rate,0);
+  }finally{
+    await call('setQos',{id,snapshot:{exists:false}});assert.equal((await call('qos',{id})).exists,false);
+    assert.equal(path.dirname(path.resolve(directory)),process.cwd());await fs.rm(directory,{recursive:true,force:true});
+  }
+});

@@ -3,7 +3,8 @@
   if($name -notmatch '^HeroBoost-(CS2|Upload-[a-f0-9-]{36})$'){throw 'Nome de política não permitido.'}
   $p=Get-NetQosPolicy -PolicyStore ActiveStore -ErrorAction Stop | Where-Object {$_.Name -eq $name} | Select-Object -First 1
   if(-not $p){return @{exists=$false}}
-  return @{exists=$true;path=[string]$p.AppPathNameMatchCondition;protocol=$p.IPProtocolMatchCondition.ToString();dscp=[int]$p.DSCPAction;rate=[double]$p.ThrottleRateAction}
+  $protocol=$p.IPProtocolMatchCondition.ToString();if($protocol -eq 'None'){$protocol='Both'} # Windows reports an unrestricted protocol as None.
+  return @{exists=$true;path=[string]$p.AppPathNameMatchCondition;protocol=$protocol;dscp=[int]$p.DSCPAction;rate=[double]$p.ThrottleRateAction}
 }
 function Invoke-HeroNetwork($operation,$d){
   switch($operation){
