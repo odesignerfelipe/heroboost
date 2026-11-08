@@ -29,7 +29,7 @@ function Invoke-HeroAdvanced($operation,$d){
       $principal=New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
       $win=Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
       $media=@(Get-PhysicalDisk -ErrorAction SilentlyContinue | ForEach-Object {@{name=$_.FriendlyName;media=$_.MediaType.ToString();health=$_.HealthStatus.ToString()}})
-      return @{admin=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);edition=$win.EditionID;revision=$win.UBR;media=$media}
+      return @{admin=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);edition=$win.EditionID;revision=$win.UBR;displayVersion=$win.DisplayVersion;media=$media}
     }
     'metrics' {
       $disk=Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk -Filter "Name='_Total'" -ErrorAction SilentlyContinue

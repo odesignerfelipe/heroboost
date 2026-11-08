@@ -1,15 +1,15 @@
-# Hero Boost 0.3.3
+# Hero Boost 0.4.0
 
 Aplicativo desktop para Windows 10/11 x64. Interface em português com a identidade fornecida: escudo HB, laranja `#FF6A00` / `#FF8A1F`, grafite e azul elétrico `#00D6FF`. Implementação independente, inspirada nas categorias do [Dilera Boost](https://www.dileraboost.com.br/).
 
 ## Usar no Windows
 
-Baixe o instalador na [release pública](https://github.com/odesignerfelipe/heroboost/releases/latest). Preferencialmente execute **`Hero-Boost-0.3.3-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`Hero-Boost-0.3.3-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
+Baixe o instalador na [release pública](https://github.com/odesignerfelipe/heroboost/releases/latest). Preferencialmente execute **`Hero-Boost-0.4.0-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`Hero-Boost-0.4.0-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
 
 1. Abra o Hero e confira o diagnóstico.
 2. Em **Perfis de uso**, revise o perfil adequado à sua máquina. Aplique somente depois de ler as escolhas.
 3. Para jogos, trabalho, estudo ou streaming, adicione os executáveis em **Modo foco** e ative o monitoramento.
-4. Em **Histórico**, restaure individualmente ou em lote. Arquivos isolados são restaurados pela área de limpeza.
+4. Em **Restauração**, restaure individualmente ou em lote. Arquivos isolados são restaurados pela área de limpeza.
 
 O app inicia com permissões normais. O botão **Abrir como administrador** restaura o foco e solicita o UAC do Windows antes de reiniciar. Drivers, serviços, tarefas, rede e políticas de máquina podem exigir administrador. Recusas do sistema são apresentadas; não são contornadas. O executável de desenvolvimento ainda não possui certificado de assinatura de código.
 
@@ -18,7 +18,7 @@ O app inicia com permissões normais. O botão **Abrir como administrador** rest
 | Área | Comportamento real | Limites relevantes |
 | --- | --- | --- |
 | Boost e perfis | 101 preferências distintas; oito perfis, incluindo Criador e Hero Completo; revisão antes de aplicar; backup sincronizado em disco antes de escrever | A lista inclui privacidade e personalização, não 101 ganhos de desempenho. Políticas dependem de edição, build e aplicativo. Não reproduz o perfil JLO, cujo conteúdo integral não consta da referência pública. |
-| Checklist | Mostra marcados os valores já configurados, distingue mudanças do Hero de valores prévios, explica bloqueios e permite desfazer por item | Resultado verificado por ajuste, incluindo falhas parciais. Valores existentes não são atribuídos ao Hero. |
+| Checklist | Cartões/lista, busca, filtros combinados, favoritos locais, aplicação individual ou em lote e desfazer por item; distingue valores prévios de mudanças do Hero | Resultado verificado por ajuste, incluindo falhas parciais. Valores existentes não são atribuídos ao Hero. |
 | CS2 | Modos Competitivo, Estável e CS2 + Stream; detecção por bibliotecas Steam, seleção validada de cs2.exe, foco e restauração por sessão | Não altera afinidade, anticheat, tickrate ou binários. OBS pode ser adicionado na lista de foco. Não foi feito benchmark de uma partida real. |
 | CFG de CS2 | Exportação opcional de hero_boost_cs2.cfg, parâmetros numéricos limitados, backup e desfazer com verificação de conflitos | Executar manualmente no console: `exec hero_boost_cs2.cfg`. Inclui fps_max, mm_dedicated_search_maxping e cl_net_buffer_ticks. Ping máximo filtra busca, não reduz RTT. Buffer pode acrescentar atraso. Confirme os comandos na sua versão do jogo. |
 | Conexão Hero | RTT, jitter de amostras consecutivas, P95, respostas ICMP, gateway, traceroute de até 20 saltos e comparação com leitura anterior no mesmo IP | 1.1.1.1 é referência pública, não servidor CS2. ICMP sem resposta não prova perda UDP do jogo. Sem VPN, infraestrutura de relays ou alteração de rotas. |
@@ -41,7 +41,7 @@ O app inicia com permissões normais. O botão **Abrir como administrador** rest
 | Rede | AutoTuningLevelLocal, EcnCapability e Timestamps do TCP Internet, com backup | Administrador. Sem ganho universal de ping. Não altera DNS, adaptadores, Wi-Fi, MTU ou firewall. |
 | Recuperação | Valores exatos, ausência e tipo do Registro; conflitos externos bloqueados; recuperação de prioridades/quarentena interrompidas | Falha de disco, exclusão/corrupção do histórico e mudanças externas podem exigir recuperação manual. |
 | Ponto de restauração | Tentativa antes do primeiro ajuste com administrador; criação manual nas configurações | Depende da Proteção do Sistema e frequência permitida. Falhas são mostradas; backup por ajuste é independente. |
-| Interface | Tema claro/escuro, movimento reduzido e tour de cinco passos | Preferências locais, sem conta. |
+| Interface | Painel compacto, hardware real, menu agrupado/recolhível, cartões ou lista, favoritos, filtros de restauração; temas claro/escuro, movimento reduzido e tour | Preferências locais, sem conta. |
 | Atualizações | GitHub `odesignerfelipe/heroboost`, aviso com botão em qualquer tela; busca na abertura, a cada 30 min e ao voltar à janela após 5 min; checksum e instalação confirmada | Exige release pública com instalador e `latest.yml`. Portátil tem atualização manual. Sem certificado, a confiança depende do canal de publicação. |
 
 Não há garantia de FPS, latência, fim de travamentos ou melhoria em qualquer PC. Algumas preferências exigem reabrir programas, sair/entrar na sessão ou reiniciar. O valor gravado não prova que uma versão futura do Windows/navegador ainda o consuma.
@@ -75,7 +75,7 @@ npm run dist
 
 Os testes verificam persistência antes da mudança, gravações concorrentes, falhas parciais, restauração em ordem inversa, conflitos, PID reutilizado, preferências protegidas, serviços/tarefas/rede simulados, mensagens HID++ simuladas, arquivos descartáveis reais, junções, sessões CS2, CFG e estatísticas de conexão. Um teste nativo altera/restaura prioridade de um processo descartável; probes e traceroute usam loopback. Com administrador, um teste cria e remove somente uma política QoS temporária para um executável descartável que nunca é iniciado. Ações destrutivas não são executadas contra serviços, drivers, apps ou configurações reais do usuário para validar a entrega.
 
-`smoke` usa `.qa/smoke-user-data` e renderização oculta. Visita as 17 telas, verifica os controles, temas, revisão/cancelamento e executa pelos botões o checklist (selecionar/aplicar/desfazer) e uma sessão CS2 (ativar/desfazer). Também simula uma release para verificar aviso global, navegação, posição ao rolar, progresso, falha/repetição e cancelamento das confirmações de download/instalação; nenhum pacote fictício é baixado. Todas as preferências do catálogo são redirecionadas para uma chave privada `HKCU\Software\HeroBoost-Tests-<GUID>`, removida ao final. O executável CS2 é um arquivo descartável, nunca iniciado. O diagnóstico da interface usa loopback. Produz `.qa/smoke.json` e capturas das telas. Não controla mouse/teclado, altera preferências reais do Windows, limpa arquivos, remove apps, troca planos ou instala drivers.
+`smoke` usa `.qa/smoke-user-data` e renderização oculta. Visita as 17 telas, verifica os controles, temas, revisão/cancelamento e executa pelos botões o checklist (selecionar/aplicar/desfazer) e uma sessão CS2 (ativar/desfazer). Também simula uma release para verificar aviso global, navegação, posição ao rolar, progresso, falha/repetição e cancelamento das confirmações de download/instalação; nenhum pacote fictício é baixado. Todas as preferências do catálogo são redirecionadas para uma chave privada `HKCU\Software\HeroBoost-Tests-<GUID>`, removida ao final. O executável CS2 é um arquivo descartável, nunca iniciado. O diagnóstico da interface usa loopback. Exercita favoritos, cartões/lista, aplicação individual, menu recolhível, seleção de limpeza e filtros de restauração. Verifica 1040 × 740 com menu aberto/recolhido e produz `.qa/smoke.json` e capturas das telas. Não controla mouse/teclado, altera preferências reais do Windows, limpa arquivos, remove apps, troca planos ou instala drivers.
 
 ## Publicação de versões
 
@@ -92,3 +92,5 @@ Ações usam listas restritas; exclusão fica nas raízes previstas, sem seguir 
 Fontes: [Electron](https://www.electronjs.org/docs/latest/tutorial/security), [Raw Input](https://learn.microsoft.com/en-us/windows/win32/inputdev/about-raw-input), [Timer Resolution](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timebeginperiod), [PnPUtil](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax), [Powercfg](https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/powercfg-command-line-options), [privacidade](https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-privacy), [Windows AI](https://learn.microsoft.com/en-us/windows/client-management/mdm/policy-csp-windowsai), [Logitech](https://github.com/Logitech/cpg-docs/tree/master/hidpp20). Fontes por preferência constam de `native/settings.json`.
 
 Conexão e CS2: [QoS do Windows](https://learn.microsoft.com/en-us/powershell/module/netqos/new-netqospolicy), [Steam: problemas de lag](https://help.steampowered.com/en/faqs/view/4AE3-4EFD-7E79-867E), [Steam Datagram Relay](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay), [NVIDIA Reflex no CS2](https://www.nvidia.com/en-us/geforce/news/counter-strike-2-released-featuring-nvidia-reflex/). O Hero não promete remover a latência geográfica entre o Nordeste e um servidor distante, nem oferece a infraestrutura de rotas de um serviço como ExitLag.
+
+A revisão do layout 0.4.0 e as decisões de adaptação da referência estão em [docs/design-review-0.4.0.md](docs/design-review-0.4.0.md).

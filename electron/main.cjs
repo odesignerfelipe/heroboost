@@ -35,7 +35,7 @@ function telemetry() {
 async function getState() {
   const current=await bridge.call('settings');
   const journal=[...store.data.journal].reverse().filter((entry,index)=>index<500||['pending','applied'].includes(entry.status));
-  return {testing:smoke,driverBackup:store.data.driverBackup?{count:store.data.driverBackup.count,date:store.data.driverBackup.date}:null,cs2:{...store.data.cs2,modes:cs2Modes},connection:store.data.connection,info,settings:settings.map(s=>({...s,unavailable:support(s,info),current:current[s.id],applied:current[s.id]?.exists&&current[s.id]?.kind===s.kind&&current[s.id]?.value===s.target})),profiles,profile:store.data.profile,focusApps:store.data.focusApps,backgroundApps:store.data.backgroundApps,focusOptions:store.data.focusOptions,restorePoint:store.data.restorePoint,updates:updates.state,focusEnabled:store.data.focusEnabled,focus:engine.lastFocus,journal,cleanupSources:await cleanup.available(),cleanupStats:{deletedBytes:store.data.cleanup.filter(f=>f.status==='deleted').reduce((sum,f)=>sum+f.size,0),restoredFiles:store.data.cleanup.filter(f=>f.status==='restored').length},cleanup:store.data.cleanup.filter(f=>['pending','isolated'].includes(f.status)).map(f=>({size:f.size,date:f.date})),hardware:advanced.metrics,telemetry:{...telemetry(),hardware:advanced.metrics},version:app.getVersion()};
+  return {testing:smoke,driverBackup:store.data.driverBackup?{count:store.data.driverBackup.count,date:store.data.driverBackup.date}:null,cs2:{...store.data.cs2,modes:cs2Modes},connection:store.data.connection,info,settings:settings.map(s=>({...s,unavailable:support(s,info),current:current[s.id],applied:current[s.id]?.exists&&current[s.id]?.kind===s.kind&&current[s.id]?.value===s.target})),profiles,profile:store.data.profile,focusApps:store.data.focusApps,backgroundApps:store.data.backgroundApps,focusOptions:store.data.focusOptions,restorePoint:store.data.restorePoint,updates:updates.state,focusEnabled:store.data.focusEnabled,focus:engine.lastFocus,journal,cleanupSources:await cleanup.available(),cleanupStats:{lastIsolation:store.data.cleanup.filter(f=>['isolated','restored','deleted'].includes(f.status)).at(-1)?.date||null,deletedBytes:store.data.cleanup.filter(f=>f.status==='deleted').reduce((sum,f)=>sum+f.size,0),restoredFiles:store.data.cleanup.filter(f=>f.status==='restored').length},cleanup:store.data.cleanup.filter(f=>['pending','isolated'].includes(f.status)).map(f=>({size:f.size,date:f.date})),hardware:advanced.metrics,telemetry:{...telemetry(),hardware:advanced.metrics},version:app.getVersion()};
 }
 function validateSender(event) {
   if(event.sender!==win?.webContents || event.senderFrame!==win.webContents.mainFrame || event.senderFrame.url!==localURL)throw new Error('Origem não autorizada.');
@@ -118,6 +118,7 @@ const actions={
     catch(e){app.requestSingleInstanceLock();throw e;}
   }),
   windowsApps:()=>shell.openExternal('ms-settings:appsfeatures'),
+  windowsStorage:()=>shell.openExternal('ms-settings:storagesense'),
   startupSettings:()=>shell.openExternal('ms-settings:startupapps'),
   export:async()=>{
     const target=await dialog.showSaveDialog(win,{title:'Exportar relatório local',defaultPath:'Hero-Boost-relatorio.json',filters:[{name:'Relatório JSON',extensions:['json']}]});
@@ -152,6 +153,32 @@ async function runSmoke() {
       return results;
     })()`);
     if(results.some(r=>r.visible===false||r.controls===false)||!results.find(r=>r.dialog)||!results.find(r=>r.sandbox)||!results.find(r=>r.search)||new Set(results.filter(r=>r.page).map(r=>r.title)).size!==17)throw new Error('Teste de interface falhou.');
+    const workspaceFlow=await win.webContents.executeJavaScript(`(async()=>{
+      const pause=ms=>new Promise(r=>setTimeout(r,ms));const until=async fn=>{for(let i=0;i<160;i++){if(fn())return;await pause(100);}throw new Error('Workspace flow timeout');};
+      const savedFavorites=[...favorites],savedCleanup=[...cleanupSelection];favorites.clear();filter='Todos';search='';catalogStatus='all';catalogView='cards';await navigate('adjustments');
+      document.querySelector('[data-action="favoriteSetting"][data-id="game-mode"]').click();
+      if(!favorites.has('game-mode')||!JSON.parse(localStorage.getItem('hero-favorites')).includes('game-mode'))throw new Error('Favorite did not persist');
+      const status=document.querySelector('#catalog-status');status.value='favorites';status.dispatchEvent(new Event('change',{bubbles:true}));
+      if(document.querySelectorAll('.setting-row').length!==1)throw new Error('Favorite filter failed');
+      document.querySelector('[data-action="catalogView"][data-id="list"]').click();if(!document.querySelector('#settings-list').classList.contains('catalog-list'))throw new Error('List view failed');
+      document.querySelector('[data-action="applyOne"][data-id="game-mode"]').click();await until(()=>document.querySelector('dialog').open);document.querySelector('#dialog-confirm').click();
+      await until(()=>!document.querySelector('.busy-overlay')&&document.querySelector('.setting-row [data-action="revert"]'));
+      if(!document.querySelector('.setting-row').classList.contains('is-configured'))throw new Error('Applied card state missing');
+      document.querySelector('.setting-row [data-action="revert"]').click();await until(()=>document.querySelector('dialog').open);document.querySelector('#dialog-confirm').click();
+      await until(()=>!document.querySelector('.busy-overlay')&&!!document.querySelector('[data-action="applyOne"]'));
+      favorites=new Set(savedFavorites);localStorage.setItem('hero-favorites',JSON.stringify(savedFavorites));catalogStatus='all';search='';catalogView='cards';localStorage.setItem('hero-catalog-view',JSON.stringify('cards'));render();
+      const originallyCollapsed=document.body.classList.contains('sidebar-compact');document.querySelector('#sidebar-collapse').click();
+      if(document.body.classList.contains('sidebar-compact')===originallyCollapsed)throw new Error('Sidebar did not change');
+      await navigate('cleanup');while(document.querySelector('[data-clean-source]:checked'))document.querySelector('[data-clean-source]:checked').click();
+      if(!document.querySelector('[data-action="scan"]').disabled||!document.querySelector('[data-action="clean"]').disabled)throw new Error('Cleanup actions enabled without selection');
+      const first=document.querySelector('[data-clean-source]:not(:disabled)');if(first){first.click();if(document.querySelector('[data-action="scan"]').disabled)throw new Error('Cleanup selection failed');}
+      cleanupSelection=new Set(savedCleanup);render();document.querySelector('#sidebar-collapse').click();
+      await navigate('history');document.querySelector('[data-action="historyFilter"][data-id="reverted"]').click();
+      if(!document.querySelector('.recovery-row')||document.querySelector('.recovery-row [data-action="revert"]'))throw new Error('Restored history filter failed');
+      document.querySelector('[data-action="historyFilter"][data-id="all"]').click();await navigate('dashboard');
+      if(document.documentElement.scrollWidth>window.innerWidth+1)throw new Error('Horizontal layout overflow');
+      return {favorites:true,filters:true,listView:true,individualApply:true,individualUndo:true,sidebar:true,cleanupSelection:true,recoveryFilter:true};
+    })()`);
     const checklist=await win.webContents.executeJavaScript(`(async()=>{
       const pause=ms=>new Promise(r=>setTimeout(r,ms));
       const until=async fn=>{for(let i=0;i<150;i++){if(fn())return;await pause(100);}throw new Error('UI action timeout');};
@@ -223,6 +250,11 @@ async function runSmoke() {
     await win.webContents.executeJavaScript("document.querySelector('[data-page=\"cs2\"]').click()");
     await new Promise(r=>setTimeout(r,250));
     await fs.writeFile(path.join(qaRoot,'cs2.png'),(await win.webContents.capturePage()).toPNG());
+    for(const [page,file] of [['adjustments','catalog.png'],['cleanup','cleanup.png'],['history','recovery.png']]){
+      await win.webContents.executeJavaScript(`(async()=>{search='';filter='Todos';catalogStatus='all';await navigate('${page}');})()`);
+      await new Promise(r=>setTimeout(r,200));
+      await fs.writeFile(path.join(qaRoot,file),(await win.webContents.capturePage()).toPNG());
+    }
     await win.webContents.executeJavaScript("document.querySelector('[data-page=\"dashboard\"]').click()");
     await new Promise(r=>setTimeout(r,250));
     await fs.writeFile(path.join(qaRoot,'dashboard.png'),(await win.webContents.capturePage()).toPNG());
@@ -232,9 +264,30 @@ async function runSmoke() {
     await new Promise(r=>setTimeout(r,250));
     await fs.writeFile(path.join(qaRoot,'light-theme.png'),(await win.webContents.capturePage()).toPNG());
     const light=await win.webContents.executeJavaScript("document.body.dataset.theme==='light'");
+    for(const [page,file] of [['dashboard','dashboard-light.png'],['adjustments','catalog-light.png'],['cleanup','cleanup-light.png']]){
+      await win.webContents.executeJavaScript(`navigate('${page}')`);await new Promise(r=>setTimeout(r,150));
+      await fs.writeFile(path.join(qaRoot,file),(await win.webContents.capturePage()).toPNG());
+    }
+    await win.webContents.executeJavaScript("navigate('settings')");
     await win.webContents.executeJavaScript("if(document.body.dataset.theme==='light')document.querySelector('[data-action=\"theme\"]').click()");
     if(!light)throw new Error('Tema claro não ativou.');
-    const report={ok:true,checklist,cs2:cs2Flow,connection:connectionFlow,updateNotice,packaged:app.isPackaged,os:state.info.os,settings:state.settings.length,profiles:state.profiles.length,startup:startup.length,drivers:drivers.items.length,optionalApps:packages.length,services:services.length,tasks:tasks.length,network,bootLogAvailable:boot.available,timerMs:timer.currentMs,logitechDevices:hid.length,hardware:advanced.metrics,lightTheme:light,changes:store.data.journal.filter(j=>['applied','pending'].includes(j.status)).length,results};
+    win.setSize(1040,740);await new Promise(r=>setTimeout(r,200));
+    const responsive=await win.webContents.executeJavaScript(`(async()=>{
+      const results=[];const original=document.body.classList.contains('sidebar-compact');
+      for(const compact of [false,true]){
+        document.body.classList.toggle('sidebar-compact',compact);
+        for(const id of ['dashboard','adjustments','cleanup','history']){
+          await navigate(id);const overflow=document.documentElement.scrollWidth>innerWidth+1;
+          if(overflow)throw new Error('Layout overflow at '+id+' with compact='+compact);
+          const settings=document.querySelector('.sidebar-bottom').getBoundingClientRect();if(settings.bottom>innerHeight+1)throw new Error('Settings inaccessible');
+          results.push({page:id,compact,width:innerWidth,overflow:false});
+        }
+      }
+      await navigate('adjustments');document.body.classList.toggle('sidebar-compact',original);return results;
+    })()`);
+    await fs.writeFile(path.join(qaRoot,'catalog-small.png'),(await win.webContents.capturePage()).toPNG());
+    win.setSize(1440,1060);
+    const report={ok:true,workspace:workspaceFlow,responsive,checklist,cs2:cs2Flow,connection:connectionFlow,updateNotice,packaged:app.isPackaged,os:state.info.os,settings:state.settings.length,profiles:state.profiles.length,startup:startup.length,drivers:drivers.items.length,optionalApps:packages.length,services:services.length,tasks:tasks.length,network,bootLogAvailable:boot.available,timerMs:timer.currentMs,logitechDevices:hid.length,hardware:advanced.metrics,lightTheme:light,changes:store.data.journal.filter(j=>['applied','pending'].includes(j.status)).length,results};
     await fs.writeFile(path.join(qaRoot,'smoke.json'),JSON.stringify(report,null,2));
     console.log(JSON.stringify(report));app.quit();
   }catch(e){console.error(e);try{await bridge.call('cleanupTestRegistry');}catch{}app.exit(1);}

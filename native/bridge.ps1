@@ -58,7 +58,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
         $disks = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object { @{name=$_.DeviceID; size=[double]$_.Size; free=[double]$_.FreeSpace} })
         $gpu = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object {$_.Name})
         $extra=Invoke-HeroAdvanced 'status' @{}
-        $result = @{os=$os.Caption; build=$os.BuildNumber; cpu=$cpu.Name.Trim(); gpu=$gpu; model=$computer.Model; laptop=($batteries.Count -gt 0 -or $computer.PCSystemType -eq 2); disks=$disks; power=(Get-Plans);admin=$extra.admin;edition=$extra.edition;revision=$extra.revision;media=$extra.media}
+        $result = @{os=$os.Caption; build=$os.BuildNumber; cpu=$cpu.Name.Trim();cpuCores=[int]$cpu.NumberOfCores;cpuLogical=[int]$cpu.NumberOfLogicalProcessors;systemDrive=$env:SystemDrive;displayVersion=$extra.displayVersion; gpu=$gpu; model=$computer.Model; laptop=($batteries.Count -gt 0 -or $computer.PCSystemType -eq 2); disks=$disks; power=(Get-Plans);admin=$extra.admin;edition=$extra.edition;revision=$extra.revision;media=$extra.media}
       }
       'settings' {
         $result = @{}

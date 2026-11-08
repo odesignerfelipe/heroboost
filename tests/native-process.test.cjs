@@ -27,6 +27,7 @@ test('native optional resources can be read and owned timer requests are paired'
   const call=(operation,payload={})=>bridge.call('advanced',{operation,payload});
   const services=await call('services');for(const s of Array.isArray(services)?services:services?[services]:[])assert.equal(typeof s.delayed,'boolean');
   const network=await call('network');assert.ok(network.AutoTuningLevelLocal);
+  const info=await bridge.call('info');assert.ok(info.cpuCores>=1);assert.ok(info.cpuLogical>=info.cpuCores);assert.match(info.systemDrive,/^[A-Z]:$/i);assert.ok(info.displayVersion===null||typeof info.displayVersion==='string');
   await assert.rejects(()=>call('service',{id:'WinDefend'}),/permitida/);
   await assert.rejects(()=>call('task',{id:'\\Microsoft\\Windows\\WindowsUpdate\\Scheduled Start'}),/permitida/);
   try{await call('setTimer',{enabled:true});assert.equal((await call('timer')).active,true);}finally{await call('setTimer',{enabled:false});}
