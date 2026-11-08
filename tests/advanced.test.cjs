@@ -37,6 +37,12 @@ test('task and TCP values return to exact originals',async()=>{
   const f=fixture();await f.advanced.change('task','task','Task',{enabled:false});await f.advanced.change('network','AutoTuningLevelLocal','TCP','Normal');
   const r=await f.engine.revertAll();assert.equal(r.errors.length,0);assert.equal(f.model.task.enabled,true);assert.equal(f.model.network.AutoTuningLevelLocal,'Restricted');
 });
+
+test('successive TCP choices can be applied and unwound in reverse order',async()=>{
+  const f=fixture();await f.advanced.change('network','AutoTuningLevelLocal','TCP','Normal');
+  await f.advanced.change('network','AutoTuningLevelLocal','TCP','Disabled');
+  const result=await f.engine.revertAll();assert.equal(result.errors.length,0);assert.equal(result.restored,2);assert.equal(f.model.network.AutoTuningLevelLocal,'Restricted');
+});
 test('admin resources are blocked before applying in a normal session',async()=>{
   const f=fixture();f.engine.systemInfo.admin=false;await assert.rejects(()=>f.advanced.change('service','WSearch','Search',{start:'Disabled',state:'Stopped',delayed:false}),/administrador/);assert.equal(f.store.data.journal.length,0);
 });

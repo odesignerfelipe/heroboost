@@ -90,8 +90,9 @@ namespace HeroBoost {
       }
     }
     public static MouseReading Stop() {
-      if(sink!=null){try{if(!sink.IsDisposed)sink.BeginInvoke((MethodInvoker)delegate(){sink.Close();});}catch{}}
-      if(thread!=null&&thread.IsAlive)thread.Join(1500);
+      var target=sink;
+      if(target!=null){try{if(!target.IsDisposed)target.BeginInvoke((MethodInvoker)delegate(){target.Close();});}catch{}}
+      if(thread!=null&&thread.IsAlive&&!thread.Join(2000))throw new InvalidOperationException("Nao foi possivel encerrar a medicao anterior do mouse.");
       sink=null;thread=null;watch.Stop();return Read();
     }
   }

@@ -3,10 +3,12 @@ const {spawn} = require('node:child_process');
 const {createInterface} = require('node:readline');
 const path = require('node:path');
 class WindowsBridge {
-  constructor(script) { this.script = script; this.next = 0; this.pending = new Map(); this.closed = false; this.queue=Promise.resolve(); }
+  constructor(script,options={}) { this.script = script; this.options=options;this.next = 0; this.pending = new Map(); this.closed = false; this.queue=Promise.resolve(); }
   start() {
     const executable = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    this.child = spawn(executable, ['-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',this.script], {windowsHide:true, stdio:['pipe','pipe','pipe']});
+    const args=['-NoLogo','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',this.script];
+    if(this.options.testRegistryRoot)args.push('-TestRegistryRoot',this.options.testRegistryRoot);
+    this.child = spawn(executable, args, {windowsHide:true, stdio:['pipe','pipe','pipe']});
     // The bundled, fixed worker accepts data over stdin; no user input becomes PowerShell source.
     this.child.stderr.on('data', () => {});
     createInterface({input:this.child.stdout}).on('line', line => {

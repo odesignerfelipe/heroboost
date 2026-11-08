@@ -27,6 +27,12 @@ test('isolates old files and restores exact content without deletion',async t=>{
 test('does not select fresh temporary files',async t=>{
   const f=await fixture(t);await fs.writeFile(path.join(f.root,'new.tmp'),'new');f.cleanup.clock=()=>Date.now();assert.equal((await f.cleanup.scan()).count,0);
 });
+
+test('restoration recreates missing original subfolders within the verified root',async t=>{
+  const f=await fixture(t),folder=path.join(f.root,'cache','sub');await fs.mkdir(folder,{recursive:true});
+  const source=path.join(folder,'old.tmp');await fs.writeFile(source,'recover');await f.cleanup.scan();await f.cleanup.isolate();
+  await fs.rmdir(folder);await fs.rmdir(path.dirname(folder));assert.equal((await f.cleanup.restore()).count,1);assert.equal(await fs.readFile(source,'utf8'),'recover');
+});
 test('skips a file modified after the scan',async t=>{
   const f=await fixture(t),source=path.join(f.root,'old.tmp');await fs.writeFile(source,'old');await f.cleanup.scan();await fs.writeFile(source,'changed content');
   const r=await f.cleanup.isolate();assert.equal(r.count,0);assert.equal(await fs.readFile(source,'utf8'),'changed content');

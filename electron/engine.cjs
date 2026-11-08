@@ -11,19 +11,24 @@ class Engine {
     const entry={id:randomUUID(),type,name,before,after,...details,status:'pending',date:new Date().toISOString()};
     this.store.data.journal.push(entry);await this.store.save();return entry;
   }
-  async applyIds(ids) {
+  async applyIds(ids,context={}) {
     if(!Array.isArray(ids)||!ids.length||ids.length>settings.length||new Set(ids).size!==ids.length||ids.some(id=>!settings.some(s=>s.id===id))) throw new Error('Seleção de ajustes inválida.');
     for(const id of ids){const spec=settings.find(s=>s.id===id);const reason=support(spec,this.systemInfo);if(reason)throw new Error(spec.name+': '+reason);if(spec.admin&&this.systemInfo&&!this.systemInfo.admin)throw new Error(spec.name+': requer administrador.');}
-    const current=await this.bridge.call('settings');const applied=[],skipped=[];
+    const current=await this.bridge.call('settings');const applied=[],skipped=[],failed=[];
     for(const id of ids) {
       const spec=settings.find(s=>s.id===id);const after={exists:true,value:spec.target,kind:spec.kind};const before=current[id];
       if(equal(before,after)) {skipped.push(id);continue;}
-      if(this.store.data.journal.some(j=>j.settingId===id&&['pending','applied'].includes(j.status))) throw new Error('Existe uma alteração pendente neste ajuste. Restaure pelo histórico antes de reaplicar.');
-      const entry=await this.record('setting',spec.name,before,after,{settingId:id});
+      if(this.store.data.journal.some(j=>j.settingId===id&&['pending','applied'].includes(j.status))){failed.push({id,name:spec.name,error:'Existe um estado anterior no histórico. Desfaça esse ajuste antes de reaplicar.'});continue;}
+      const entry=await this.record('setting',spec.name,before,after,{settingId:id,...context});
       try {const actual=await this.bridge.call('writeSetting',{id,snapshot:after});if(!equal(actual,after)) throw new Error('O Windows não confirmou o novo valor.');entry.status='applied';await this.store.save();applied.push(id);}
-      catch(e) {entry.error=e.message;await this.store.save();throw new Error(`${spec.name}: ${e.message} O estado anterior está no histórico.`);}
+      catch(e) {
+        entry.error=e.message;
+        try{const actual=(await this.bridge.call('settings'))[id];if(equal(actual,before))entry.status='failed';else if(equal(actual,after)){entry.status='applied';applied.push(id);await this.store.save();continue;}}catch{}
+        await this.store.save();failed.push({id,name:spec.name,error:e.message,pending:entry.status==='pending'});
+        if(this.bridge.closed)break;
+      }
     }
-    return {applied:applied.length,skipped:skipped.length};
+    return {applied:applied.length,skipped:skipped.length,...(failed.length?{failed}: {})};
   }
   async profile(id) {
     const profile=profiles.find(p=>p.id===id);if(!profile)throw new Error('Perfil inválido.');
@@ -50,7 +55,7 @@ class Engine {
   async setPower(id) {
     const power=await this.bridge.call('power');if(!power.plans.some(p=>p.id===id))throw new Error('Plano inválido.');
     if(id===power.active)return {unchanged:true};
-    if(this.store.data.journal.some(j=>j.type==='power'&&['applied','pending'].includes(j.status))) throw new Error('Restaure o plano anterior no histórico antes de trocar novamente.');
+    if(this.store.data.journal.some(j=>j.type==='power'&&j.status==='pending')) throw new Error('Resolva a troca de energia pendente no histórico antes de tentar novamente.');
     const info=await this.bridge.call('info');
     if(info.laptop&&id==='8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c') throw new Error('Alto desempenho bloqueado em notebook. Use Equilibrado ou Economia de energia.');
     const entry=await this.record('power','Plano de energia',power.active,id);
@@ -69,13 +74,13 @@ class Engine {
     } else if(this.revertAdvanced)return this.revertAdvanced(entry);
     else throw new Error('Tipo de alteração inválido.');
     const isEqual=entry.type==='setting'||entry.type==='startup'?equal:(a,b)=>a===b;
-    if(isEqual(current,entry.before)) {entry.status='reverted';await this.store.save();return true;}
+    if(isEqual(current,entry.before)) {if(entry.type==='power'&&entry.createdPlan)await this.bridge.call('advanced',{operation:'deletePower',payload:{id:entry.createdPlan}});entry.status='reverted';await this.store.save();return true;}
     if(!isEqual(current,entry.after)) throw new Error('O valor foi alterado fora do Hero Boost. A restauração foi bloqueada para preservar essa mudança.');
-    if(entry.type==='setting') await this.bridge.call('writeSetting',{id:entry.settingId,snapshot:entry.before});
-    if(entry.type==='startup')await this.bridge.call('writeStartup',{name:entry.entryName,location:entry.location||'user',snapshot:entry.before});
-    if(entry.type==='power')await this.bridge.call('setPower',{id:entry.before});
+    if(entry.type==='setting'){const value=await this.bridge.call('writeSetting',{id:entry.settingId,snapshot:entry.before});if(!equal(value,entry.before))throw new Error('O Windows não confirmou a restauração.');}
+    if(entry.type==='startup'){const value=await this.bridge.call('writeStartup',{name:entry.entryName,location:entry.location||'user',snapshot:entry.before});if(!equal(value,entry.before))throw new Error('Inicialização não restaurada pelo Windows.');}
+    if(entry.type==='power'){const value=await this.bridge.call('setPower',{id:entry.before});if(value.active!==entry.before)throw new Error('Plano anterior não confirmado.');}
     if(entry.type==='power'&&entry.createdPlan)await this.bridge.call('advanced',{operation:'deletePower',payload:{id:entry.createdPlan}});
-    if(entry.type==='priority')await this.bridge.call('priority',{...entry.process,priority:entry.before});
+    if(entry.type==='priority'){const value=await this.bridge.call('priority',{...entry.process,priority:entry.before});if(value!==entry.before)throw new Error('Prioridade anterior não confirmada.');}
     entry.status='reverted';entry.revertedAt=new Date().toISOString();await this.store.save();return true;
   }
   async revertAll(type) {
@@ -95,14 +100,14 @@ class Engine {
       if(p.priority==='RealTime'||p.priority==='High'||(p.priority==='AboveNormal'&&desired==='AboveNormal'))continue;
       if(this.store.data.journal.some(j=>j.type==='priority'&&j.process.id===p.id&&j.process.started===p.started&&['applied','pending'].includes(j.status)))continue;
       const entry=await this.record('priority',`Foco: ${p.name}`,p.priority,desired,{process:p});
-      try {await this.bridge.call('priority',{...p,priority:desired});entry.status='applied';await this.store.save();}catch(e){entry.error=e.message;await this.store.save();errors.push(`${p.name}: acesso negado ou programa encerrado`);}
+      try {await this.bridge.call('priority',{...p,priority:desired});p.priority=desired;entry.status='applied';await this.store.save();}catch(e){entry.error=e.message;await this.store.save();errors.push(`${p.name}: acesso negado ou programa encerrado`);}
     }
     for(const entry of this.store.data.journal.filter(j=>j.type==='priority'&&['applied','pending'].includes(j.status))) {
       if(entry.scope==='focus')continue;
       const p=processes.find(p=>p.id===entry.process.id&&p.started===entry.process.started);
       if(!p||!targets.has(p.path.toLowerCase())) {try {await this.revert(entry.id);}catch(e){errors.push(e.message);}}
     }
-    this.lastFocus={active:active.map(p=>({name:p.name,id:p.id})),errors};
+    this.lastFocus={active:active.map(p=>({name:this.store.data.focusApps.find(a=>a.path.toLowerCase()===p.path.toLowerCase())?.name||p.name,processName:p.name,id:p.id,path:p.path,priority:p.priority})),errors};
   }
   async setFocus(enabled) {
     if(typeof enabled!=='boolean')throw new Error('Estado inválido.');

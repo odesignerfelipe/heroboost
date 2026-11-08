@@ -68,7 +68,9 @@ function Invoke-HeroAdvanced($operation,$d){
       $startup=switch($d.snapshot.start){'Auto'{if($d.snapshot.delayed){'AutomaticDelayedStart'}else{'Automatic'}}'Manual'{'Manual'}'Disabled'{'Disabled'}}
       if($startup -eq 'AutomaticDelayedStart'){Set-Service -Name $d.id -StartupType Automatic; & "$env:SystemRoot\System32\sc.exe" config $d.id 'start=' 'delayed-auto' | Out-Null;if($LASTEXITCODE -ne 0){throw 'Falha ao restaurar início atrasado.'}}
       else{Set-Service -Name $d.id -StartupType $startup}
-      if($d.snapshot.state -eq 'Stopped'){Stop-Service -Name $d.id -ErrorAction Stop}else{Start-Service -Name $d.id -ErrorAction Stop}
+      if($d.snapshot.state -eq 'Stopped'){Stop-Service -Name $d.id -ErrorAction Stop}
+      elseif($d.snapshot.start -eq 'Disabled'){Set-Service -Name $d.id -StartupType Manual;Start-Service -Name $d.id -ErrorAction Stop;Set-Service -Name $d.id -StartupType Disabled}
+      else{Start-Service -Name $d.id -ErrorAction Stop}
       return Get-HeroService $d.id
     }
     'tasks' {return @($heroTasks | ForEach-Object {Get-HeroTask $_} | Where-Object {$null -ne $_})}

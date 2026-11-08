@@ -41,7 +41,7 @@ class Advanced {
   }
   async change(kind,id,name,after,details={}){
     if(['service','task','network'].includes(kind))this.admin();
-    if(this.store.data.journal.some(j=>j.type===kind&&j.resourceId===id&&['applied','pending'].includes(j.status)))throw new Error('Restaure a mudança anterior antes de reaplicar este recurso.');
+    if(this.store.data.journal.some(j=>j.type===kind&&j.resourceId===id&&j.status==='pending'))throw new Error('Resolva a mudança pendente no histórico antes de reaplicar este recurso.');
     const before=await this.snapshot(kind,id);
     if(before===null||before===undefined)throw new Error('Recurso indisponível neste Windows.');
     if(kind==='service'&&(!['Running','Stopped'].includes(before.state)||!['Auto','Manual','Disabled'].includes(before.start)))throw new Error('Estado de serviço não suportado com restauração exata.');
@@ -85,7 +85,7 @@ class Advanced {
   }
   async syncFocus(){
     const active=this.store.data.focusEnabled&&this.engine.lastFocus.active.length>0;
-    if(!active){await this.restoreFocus();return;}
+    if(!active){const result=await this.restoreFocus();this.engine.lastFocus.errors.push(...result.errors);return;}
     const processes=array(await this.bridge.call('processes'));
     const background=new Set(this.store.data.backgroundApps.map(p=>p.path.toLowerCase()));
     const targets=new Set(this.store.data.focusApps.map(p=>p.path.toLowerCase()));

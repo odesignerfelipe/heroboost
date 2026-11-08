@@ -1,12 +1,15 @@
-﻿$ErrorActionPreference = 'Stop'
+﻿param([string]$TestRegistryRoot='')
+$ErrorActionPreference = 'Stop'
+if($TestRegistryRoot -and $TestRegistryRoot -notmatch '^Software\\HeroBoost-Tests-[0-9a-f]{32}$'){throw 'Raiz de teste inválida.'}
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 $ProgressPreference = 'SilentlyContinue'
 $runKey = 'Software\Microsoft\Windows\CurrentVersion\Run'
 $allowed = @{}
 $catalog=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-foreach($item in $catalog){$allowed[$item.id]=$item}
+foreach($item in $catalog){if($TestRegistryRoot){$item.path=$TestRegistryRoot+'\'+$item.id;$item.hive='HKCU'};$allowed[$item.id]=$item}
 . (Join-Path $PSScriptRoot 'advanced.ps1')
+. (Join-Path $PSScriptRoot 'network.ps1')
 function Get-RegValue($subkey, $name, $hive='HKCU') {
   $base=if($hive -eq 'HKLM'){[Microsoft.Win32.Registry]::LocalMachine}else{[Microsoft.Win32.Registry]::CurrentUser}
   $key = $base.OpenSubKey($subkey)
@@ -104,6 +107,8 @@ while ($null -ne ($line = [Console]::ReadLine())) {
         $result = $p.PriorityClass.ToString()
       }
       'advanced' {$result=Invoke-HeroAdvanced $d.operation $d.payload}
+      'network' {$result=Invoke-HeroNetwork $d.operation $d.payload}
+      'cleanupTestRegistry' {if(-not $TestRegistryRoot){throw 'Esta operação exige uma raiz de teste.'};[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($TestRegistryRoot,$false);$result=$true}
       default { throw 'Operação não permitida.' }
     }
     [Console]::WriteLine((@{id=$req.id; ok=$true; result=$result} | ConvertTo-Json -Compress -Depth 12))

@@ -11,15 +11,19 @@ const {DiskTools,analyzeDirectory} = require('./disk.cjs');
 const {Advanced,array} = require('./advanced.cjs');
 const {Logitech}=require('./logitech.cjs');
 const {Updates}=require('./updates.cjs');
+const {CS2,modes:cs2Modes}=require('./cs2.cjs');
+const {Connection}=require('./connection.cjs');
 const {settings,profiles,support} = require('./catalog.cjs');
 app.setName('Hero Boost');
-const smoke=process.argv.includes('--smoke-test');
+const inspectQA=process.argv.includes('--inspect-qa');
+const smoke=process.argv.includes('--smoke-test')||inspectQA;
+const testRegistryRoot=smoke?'Software\\HeroBoost-Tests-'+require('node:crypto').randomUUID().replaceAll('-',''):null;
 const qaRoot=path.join(app.isPackaged?(process.env.PORTABLE_EXECUTABLE_DIR||path.dirname(app.getPath('exe'))):path.join(__dirname,'..'),'.qa');
-if(smoke)app.setPath('userData',path.join(qaRoot,'user-data'));
+if(smoke)app.setPath('userData',path.join(qaRoot,inspectQA?'inspection-user-data':'smoke-user-data'));
 if(!app.requestSingleInstanceLock())app.quit();
 const index=path.join(__dirname,'..','ui','index.html');
 const localURL=pathToFileURL(index).href;
-let win,store,bridge,engine,cleanup,info,advanced,updates,hardwareTimer,hardwareBusy=false,focusInterval,quitting=false,queueTick=false;
+let win,store,bridge,engine,cleanup,info,advanced,updates,cs2,connection,hardwareTimer,hardwareBusy=false,focusInterval,quitting=false,queueTick=false;
 const logitech=new Logitech();
 let previousCPU=os.cpus();
 function telemetry() {
@@ -31,7 +35,7 @@ function telemetry() {
 async function getState() {
   const current=await bridge.call('settings');
   const journal=[...store.data.journal].reverse().filter((entry,index)=>index<500||['pending','applied'].includes(entry.status));
-  return {testing:smoke,info,settings:settings.map(s=>({...s,unavailable:support(s,info),current:current[s.id],applied:current[s.id]?.exists&&current[s.id]?.kind===s.kind&&current[s.id]?.value===s.target})),profiles,profile:store.data.profile,focusApps:store.data.focusApps,backgroundApps:store.data.backgroundApps,focusOptions:store.data.focusOptions,restorePoint:store.data.restorePoint,updates:updates.state,focusEnabled:store.data.focusEnabled,focus:engine.lastFocus,journal,cleanupSources:await cleanup.available(),cleanupStats:{deletedBytes:store.data.cleanup.filter(f=>f.status==='deleted').reduce((sum,f)=>sum+f.size,0),restoredFiles:store.data.cleanup.filter(f=>f.status==='restored').length},cleanup:store.data.cleanup.filter(f=>['pending','isolated'].includes(f.status)).map(f=>({size:f.size,date:f.date})),hardware:advanced.metrics,telemetry:{...telemetry(),hardware:advanced.metrics},version:app.getVersion()};
+  return {testing:smoke,driverBackup:store.data.driverBackup?{count:store.data.driverBackup.count,date:store.data.driverBackup.date}:null,cs2:{...store.data.cs2,modes:cs2Modes},connection:store.data.connection,info,settings:settings.map(s=>({...s,unavailable:support(s,info),current:current[s.id],applied:current[s.id]?.exists&&current[s.id]?.kind===s.kind&&current[s.id]?.value===s.target})),profiles,profile:store.data.profile,focusApps:store.data.focusApps,backgroundApps:store.data.backgroundApps,focusOptions:store.data.focusOptions,restorePoint:store.data.restorePoint,updates:updates.state,focusEnabled:store.data.focusEnabled,focus:engine.lastFocus,journal,cleanupSources:await cleanup.available(),cleanupStats:{deletedBytes:store.data.cleanup.filter(f=>f.status==='deleted').reduce((sum,f)=>sum+f.size,0),restoredFiles:store.data.cleanup.filter(f=>f.status==='restored').length},cleanup:store.data.cleanup.filter(f=>['pending','isolated'].includes(f.status)).map(f=>({size:f.size,date:f.date})),hardware:advanced.metrics,telemetry:{...telemetry(),hardware:advanced.metrics},version:app.getVersion()};
 }
 function validateSender(event) {
   if(event.sender!==win?.webContents || event.senderFrame!==win.webContents.mainFrame || event.senderFrame.url!==localURL)throw new Error('Origem não autorizada.');
@@ -41,15 +45,15 @@ const actions={
   state:()=>getState(),
   telemetry:()=>({...telemetry(),focus:engine.lastFocus,hardware:advanced.metrics,updates:updates.state}),
   refresh:async()=>{info=await bridge.call('info');engine.systemInfo=info;return getState();},
-  apply:({ids})=>engine.serialize(async()=>{await advanced.prepare();return engine.applyIds(ids);}),
-  profile:({id})=>engine.serialize(async()=>{await advanced.prepare();return engine.profile(id);}),
+  apply:({ids})=>engine.serialize(async()=>{if(!smoke)await advanced.prepare();return engine.applyIds(ids);}),
+  profile:({id})=>engine.serialize(async()=>{if(!smoke)await advanced.prepare();return engine.profile(id);}),
   revert:({id})=>engine.serialize(()=>engine.revert(id)),
-  revertAll:()=>engine.serialize(()=>engine.revertAll()),
+  revertAll:()=>engine.serialize(async()=>{const focus=await engine.setFocus(false);const session=await cs2.deactivate({restoreFocus:false});const result=await engine.revertAll();return {restored:session.restored+result.restored,errors:[...focus.errors,...session.errors,...result.errors]};}),
   startup:()=>engine.startup(),
   disableStartup:({id})=>engine.serialize(()=>engine.disableStartup(id)),
   power:()=>bridge.call('power'),
   setPower:({id})=>engine.serialize(()=>engine.setPower(id)),
-  createHeroPower:({kind})=>engine.serialize(async()=>{if(!['laptop','desktop'].includes(kind))throw new Error('Plano inválido.');if(store.data.journal.some(j=>j.type==='power'&&['applied','pending'].includes(j.status)))throw new Error('Restaure a troca de energia anterior pelo histórico.');const before=await bridge.call('power');const id=require('node:crypto').randomUUID();const entry=await engine.record('power','Plano Hero '+kind,before.active,id,{createdPlan:id});const actual=await advanced.call('createPower',{kind,id});if(actual.active!==id)throw new Error('Plano não confirmado.');entry.status='applied';await store.save();info=await bridge.call('info');engine.systemInfo=info;return true;}),
+  createHeroPower:({kind})=>engine.serialize(async()=>{if(!['laptop','desktop'].includes(kind))throw new Error('Plano inválido.');if(store.data.journal.some(j=>j.type==='power'&&j.status==='pending'))throw new Error('Resolva a troca de energia pendente pelo histórico.');const before=await bridge.call('power');const id=require('node:crypto').randomUUID();const entry=await engine.record('power','Plano Hero '+kind,before.active,id,{createdPlan:id});const actual=await advanced.call('createPower',{kind,id});if(actual.active!==id)throw new Error('Plano não confirmado.');entry.status='applied';await store.save();info=await bridge.call('info');engine.systemInfo=info;return true;}),
   focus:({enabled})=>engine.serialize(()=>engine.setFocus(enabled)),
   addApp:async()=>{
     const selected=await dialog.showOpenDialog(win,{title:'Escolha um jogo ou programa',properties:['openFile'],filters:[{name:'Aplicativo Windows',extensions:['exe']}]});
@@ -85,6 +89,17 @@ const actions={
   logitechInfo:({id,index})=>engine.serialize(()=>logitech.inspect(id,index)),
   logitechDpi:({id,index,dpi})=>engine.serialize(()=>advanced.change('mouseDpi',id+':'+index,'DPI do mouse Logitech',dpi)),
   boot:()=>advanced.call('boot'),
+  cs2Discover:()=>engine.serialize(()=>cs2.discover()),
+  cs2Select:async()=>{const target=await dialog.showOpenDialog(win,{title:'Escolha o cs2.exe',properties:['openFile'],filters:[{name:'Counter-Strike 2',extensions:['exe']}]});if(target.canceled)return null;return engine.serialize(()=>cs2.select(target.filePaths[0]));},
+  cs2Activate:({mode})=>engine.serialize(async()=>{if(!smoke)await advanced.prepare();return cs2.activate(mode);}),
+  cs2Deactivate:()=>engine.serialize(()=>cs2.deactivate()),
+  cs2Resume:()=>engine.serialize(async()=>{if(!store.data.cs2.session?.active)throw new Error('Ative primeiro um modo CS2.');await cs2.validate(store.data.cs2.path);await engine.setFocus(true);return true;}),
+  cs2Launch:()=>shell.openExternal('steam://rungameid/730'),
+  cs2Config:async({options})=>{const target=await dialog.showSaveDialog(win,{title:'Salvar configuração opcional do CS2',defaultPath:cs2.configPath()||'hero_boost_cs2.cfg',filters:[{name:'Configuração CS2',extensions:['cfg']}]});if(target.canceled)return null;return engine.serialize(()=>cs2.exportConfig(target.filePath,options));},
+  connectionRun:({target,trace})=>{if(smoke&&target!=='127.0.0.1')throw new Error('A verificação de conexão usa apenas loopback.');return connection.run(target,trace!==false);},
+  connectionExport:async()=>{const report=store.data.connection.reports.at(-1);if(!report)throw new Error('Faça um diagnóstico primeiro.');const target=await dialog.showSaveDialog(win,{title:'Exportar diagnóstico de conexão (inclui IPs)',defaultPath:'Hero-Boost-conexao.json',filters:[{name:'Diagnóstico JSON',extensions:['json']}]});if(target.canceled)return false;await fs.writeFile(target.filePath,JSON.stringify(report,null,2),'utf8');return true;},
+  cs2Qos:()=>engine.serialize(async()=>{advanced.admin();const executable=await cs2.validate(store.data.cs2.path);return advanced.change('qos','HeroBoost-CS2','QoS UDP do CS2',{exists:true,path:executable.toLowerCase(),protocol:'UDP',dscp:46,rate:0});}),
+  limitUpload:async({mbps})=>{advanced.admin();if(typeof mbps!=='number'||mbps<.1||mbps>1000)throw new Error('Informe limite entre 0,1 e 1000 Mbps.');const target=await dialog.showOpenDialog(win,{title:'Aplicativo cujo upload será limitado',properties:['openFile'],filters:[{name:'Executável',extensions:['exe']}]});if(target.canceled)return null;const executable=await fs.realpath(target.filePaths[0]);if(require('./engine.cjs').isProtectedProcess({path:executable}))throw new Error('Não é permitido limitar componentes do Windows ou de segurança.');const id='HeroBoost-Upload-'+require('node:crypto').randomUUID();return engine.serialize(()=>advanced.change('qos',id,'Limite de upload: '+path.basename(executable),{exists:true,path:executable.toLowerCase(),protocol:'Both',dscp:-1,rate:Math.round(mbps*1000000)}));},
   recycle:({confirmation})=>engine.serialize(()=>advanced.call('recycle',{confirmation})),
   focusOptions:({options})=>engine.serialize(()=>advanced.configureFocus(options)),
   addBackground:async()=>{
@@ -118,10 +133,10 @@ async function runSmoke() {
     const startup=await engine.startup();
     const results=await win.webContents.executeJavaScript(`(async()=>{
       const results=[];
-      for(const page of ['profiles','adjustments','focus','performance','cleanup','startup','energy','debloat','mouse','timer','drivers','resources','history','settings','dashboard']){
+      for(const page of ['profiles','adjustments','focus','performance','cleanup','startup','energy','debloat','mouse','timer','drivers','resources','history','cs2','connection','settings','dashboard']){
         document.querySelector('[data-page="'+page+'"]').click();
         await new Promise(r=>setTimeout(r,250));
-        results.push({page,visible:document.querySelector('main').innerText.length>80,title:document.querySelector('h1')?.textContent,breadcrumb:document.querySelector('#breadcrumb').textContent});
+        results.push({page,visible:document.querySelector('main').innerText.length>80,title:document.querySelector('h1')?.textContent,breadcrumb:document.querySelector('#breadcrumb').textContent,controls:[...document.querySelectorAll('[data-action]')].every(el=>typeof handlers[el.dataset.action]==='function')});
       }
       document.querySelector('[data-action="boost"]').click();
       await new Promise(r=>setTimeout(r,100));
@@ -136,13 +151,56 @@ async function runSmoke() {
       await new Promise(r=>setTimeout(r,150));
       return results;
     })()`);
-    if(results.some(r=>r.visible===false)||!results.find(r=>r.dialog)||!results.find(r=>r.sandbox)||!results.find(r=>r.search)||new Set(results.filter(r=>r.page).map(r=>r.title)).size!==15)throw new Error('Teste de interface falhou.');
+    if(results.some(r=>r.visible===false||r.controls===false)||!results.find(r=>r.dialog)||!results.find(r=>r.sandbox)||!results.find(r=>r.search)||new Set(results.filter(r=>r.page).map(r=>r.title)).size!==17)throw new Error('Teste de interface falhou.');
+    const checklist=await win.webContents.executeJavaScript(`(async()=>{
+      const pause=ms=>new Promise(r=>setTimeout(r,ms));
+      const until=async fn=>{for(let i=0;i<150;i++){if(fn())return;await pause(100);}throw new Error('UI action timeout');};
+      document.querySelector('[data-page="adjustments"]').click();await pause(400);
+      const search=document.querySelector('#setting-search');search.value='Modo de Jogo do Windows';search.dispatchEvent(new Event('input',{bubbles:true}));
+      const check=document.querySelector('[data-setting="game-mode"]');if(!check||check.disabled||check.checked)throw new Error('Isolated fixture not available');
+      check.click();if(document.querySelector('#selection-count').textContent!=='1')throw new Error('Selection count not synchronized');
+      document.querySelector('[data-action="applySelected"]').click();await until(()=>document.querySelector('dialog').open);document.querySelector('#dialog-confirm').click();
+      await until(()=>!document.querySelector('.busy-overlay')&&document.querySelector('[data-setting="game-mode"]')?.checked&&document.querySelector('[data-setting="game-mode"]')?.disabled&&document.querySelector('.setting-row [data-action="revert"]'));
+      const applied=document.querySelector('[data-setting="game-mode"]');if(!applied.disabled)throw new Error('Applied setting state not reflected');
+      const undo=document.querySelector('.setting-row [data-action="revert"]');if(!undo)throw new Error('Per-item undo missing');undo.click();
+      await until(()=>document.querySelector('dialog').open);document.querySelector('#dialog-confirm').click();
+      await until(()=>!document.querySelector('.busy-overlay')&&!document.querySelector('[data-setting="game-mode"]')?.checked);
+      if(document.querySelector('[data-setting="game-mode"]').disabled)throw new Error('Restored setting is not selectable');
+      document.querySelector('[data-page="dashboard"]').click();await pause(300);
+      return {selected:true,applied:true,undo:true,registry:'isolated-test-key'};
+    })()`);
+    const cs2Flow=await win.webContents.executeJavaScript(`(async()=>{
+      const pause=ms=>new Promise(r=>setTimeout(r,ms));
+      const until=async fn=>{for(let i=0;i<200;i++){if(fn())return;await pause(100);}throw new Error('CS2 UI action timeout');};
+      document.querySelector('[data-page="cs2"]').click();await pause(250);
+      document.querySelector('[data-action="cs2Activate"][data-id="stable"]').click();await until(()=>document.querySelector('dialog').open);document.querySelector('#dialog-confirm').click();
+      await until(()=>!document.querySelector('.busy-overlay')&&document.querySelector('[data-action="cs2Deactivate"]'));
+      if(!state.focusEnabled||!state.focusApps.some(a=>a.name==='Counter-Strike 2'))throw new Error('CS2 focus not enabled');
+      document.querySelector('[data-action="cs2Deactivate"]').click();await until(()=>document.querySelector('dialog').open);document.querySelector('#dialog-confirm').click();
+      await until(()=>!document.querySelector('.busy-overlay')&&!document.querySelector('[data-action="cs2Deactivate"]'));
+      if(state.focusEnabled||state.focusApps.length)throw new Error('CS2 session not restored');
+      return {activated:true,focus:true,undo:true,gameLaunched:false};
+    })()`);
+    const connectionFlow=await win.webContents.executeJavaScript(`(async()=>{
+      const pause=ms=>new Promise(r=>setTimeout(r,ms));
+      document.querySelector('[data-page="connection"]').click();await pause(200);
+      document.querySelector('#connection-target').value='127.0.0.1';document.querySelector('[data-action="connectionRun"]').click();
+      for(let i=0;i<600;i++){if(!document.querySelector('.busy-overlay')&&state.connection.reports.length)break;await pause(100);}
+      const report=state.connection.reports.at(-1);if(!report||report.destination.summary.received!==20||report.hops[0]?.status!=='Success')throw new Error('Connection UI measurement failed');
+      return {target:report.target,received:report.destination.summary.received,trace:true,exportEnabled:!document.querySelector('[data-action="connectionExport"]').disabled};
+    })()`);
     const drivers=await advanced.call('drivers');const packages=array(await advanced.call('packages'));const timer=await advanced.call('timer');const hid=await logitech.list();
     const services=array(await advanced.call('services')),tasks=array(await advanced.call('tasks')),network=await advanced.call('network'),boot=await advanced.call('boot');
     if(!network.AutoTuningLevelLocal||services.some(s=>!s.start||typeof s.delayed!=='boolean'))throw new Error('Inventário nativo incompleto.');
-    win.showInactive();
+    // Automated checks render offscreen; never take control of the user's desktop.
     await new Promise(r=>setTimeout(r,600));
     await fs.mkdir(qaRoot,{recursive:true});
+    await fs.writeFile(path.join(qaRoot,'connection.png'),(await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript("document.querySelector('[data-page=\"cs2\"]').click()");
+    await new Promise(r=>setTimeout(r,250));
+    await fs.writeFile(path.join(qaRoot,'cs2.png'),(await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript("document.querySelector('[data-page=\"dashboard\"]').click()");
+    await new Promise(r=>setTimeout(r,250));
     await fs.writeFile(path.join(qaRoot,'dashboard.png'),(await win.webContents.capturePage()).toPNG());
     await win.webContents.executeJavaScript("document.querySelector('[data-page=\"settings\"]').click()");
     await new Promise(r=>setTimeout(r,250));
@@ -152,22 +210,24 @@ async function runSmoke() {
     const light=await win.webContents.executeJavaScript("document.body.dataset.theme==='light'");
     await win.webContents.executeJavaScript("if(document.body.dataset.theme==='light')document.querySelector('[data-action=\"theme\"]').click()");
     if(!light)throw new Error('Tema claro não ativou.');
-    const report={ok:true,packaged:app.isPackaged,os:state.info.os,settings:state.settings.length,profiles:state.profiles.length,startup:startup.length,drivers:drivers.items.length,optionalApps:packages.length,services:services.length,tasks:tasks.length,network,bootLogAvailable:boot.available,timerMs:timer.currentMs,logitechDevices:hid.length,hardware:advanced.metrics,lightTheme:light,changes:store.data.journal.length,results};
+    const report={ok:true,checklist,cs2:cs2Flow,connection:connectionFlow,packaged:app.isPackaged,os:state.info.os,settings:state.settings.length,profiles:state.profiles.length,startup:startup.length,drivers:drivers.items.length,optionalApps:packages.length,services:services.length,tasks:tasks.length,network,bootLogAvailable:boot.available,timerMs:timer.currentMs,logitechDevices:hid.length,hardware:advanced.metrics,lightTheme:light,changes:store.data.journal.filter(j=>['applied','pending'].includes(j.status)).length,results};
     await fs.writeFile(path.join(qaRoot,'smoke.json'),JSON.stringify(report,null,2));
     console.log(JSON.stringify(report));app.quit();
-  }catch(e){console.error(e);app.exit(1);}
+  }catch(e){console.error(e);try{await bridge.call('cleanupTestRegistry');}catch{}app.exit(1);}
 }
 app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.show();win.focus();}});
 app.whenReady().then(async()=>{
   if(process.platform!=='win32')throw new Error('O Hero Boost requer Windows 10 ou 11.');
-  store=new Store(app.getPath('userData'));await store.load();
-  bridge=new WindowsBridge(app.isPackaged?path.join(process.resourcesPath,'native','bridge.ps1'):path.join(__dirname,'..','native','bridge.ps1'));
+  store=new Store(app.getPath('userData'));await store.load();if(smoke){store.data.journal=[];store.data.focusApps=[];store.data.backgroundApps=[];store.data.cleanup=[];await fs.mkdir(qaRoot,{recursive:true});const executable=path.join(qaRoot,'cs2.exe');await fs.writeFile(executable,'MZ disposable fixture, never launched');store.data.cs2={path:executable,session:null};store.data.connection={reports:[]};}
+  bridge=new WindowsBridge(app.isPackaged?path.join(process.resourcesPath,'native','bridge.ps1'):path.join(__dirname,'..','native','bridge.ps1'),{testRegistryRoot});
   engine=new Engine(store,bridge);
   cleanup=new DiskTools(process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local'),path.join(app.getPath('userData'),'quarantine'),store,bridge);
   advanced=new Advanced(engine,store,bridge);updates=new Updates(app,store);
+  cs2=new CS2(engine,store,bridge);connection=new Connection(bridge.script,store,bridge);
   const nativeSnapshot=advanced.snapshot.bind(advanced),nativeWrite=advanced.write.bind(advanced);
-  advanced.snapshot=async(kind,id)=>{if(kind!=='mouseDpi')return nativeSnapshot(kind,id);const [device,index]=id.split(':');await logitech.list();return (await logitech.inspect(device,Number(index))).dpi;};
-  advanced.write=async(kind,id,value,details)=>{if(kind!=='mouseDpi')return nativeWrite(kind,id,value,details);const [device,index]=id.split(':');return logitech.setDpi(device,Number(index),value);};
+  advanced.snapshot=async(kind,id)=>{if(kind==='qos')return connection.qosSnapshot(id);if(kind!=='mouseDpi')return nativeSnapshot(kind,id);const [device,index]=id.split(':');await logitech.list();return (await logitech.inspect(device,Number(index))).dpi;};
+  advanced.write=async(kind,id,value,details)=>{if(kind==='qos')return connection.qosWrite(id,value);if(kind!=='mouseDpi')return nativeWrite(kind,id,value,details);const [device,index]=id.split(':');return logitech.setDpi(device,Number(index),value);};
+  engine.revertAdvanced=entry=>entry.type==='cs2Config'?cs2.revertConfig(entry):advanced.revert(entry);
   await cleanup.recoverPending();
   // Focus never silently resumes on startup. Recover only temporary priorities that we own.
   store.data.focusEnabled=false;await store.save();
@@ -177,17 +237,17 @@ app.whenReady().then(async()=>{
   const focusRecovery=await advanced.restoreFocus();engine.lastFocus.errors.push(...focusRecovery.errors);
   try{advanced.metrics=await advanced.call('metrics');}catch(e){advanced.metrics={error:e.message};}
   ipcMain.handle('hero:request',async(event,action,data={})=>{
-    try{validateSender(event);if(typeof action!=='string'||!Object.hasOwn(actions,action))throw new Error('Operação não permitida.');object(data);return {ok:true,result:await actions[action](data)};}
+    try{validateSender(event);if(typeof action!=='string'||!Object.hasOwn(actions,action))throw new Error('Operação não permitida.');object(data);if(smoke&&!['state','telemetry','refresh','apply','profile','revert','revertAll','startup','power','drivers','packages','resources','timer','mouseStart','mouseRead','mouseStop','logitechDevices','logitechInfo','boot','cs2Activate','cs2Deactivate','cs2Resume','connectionRun'].includes(action))throw new Error('Modo de verificação: esta ação real está bloqueada.');return {ok:true,result:await actions[action](data)};}
     catch(e){return {ok:false,error:e.message};}
   });
-  win=new BrowserWindow({width:1440,height:smoke?1060:960,minWidth:1040,minHeight:740,backgroundColor:'#0c0f14',title:'Hero Boost',icon:path.join(__dirname,'..','ui','assets','icon.png'),autoHideMenuBar:true,show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:!smoke,devTools:!app.isPackaged}});
+  win=new BrowserWindow({width:1440,height:smoke?1060:960,minWidth:1040,minHeight:740,backgroundColor:'#0c0f14',title:inspectQA?'Hero Boost — Verificação isolada':'Hero Boost',icon:path.join(__dirname,'..','ui','assets','icon.png'),autoHideMenuBar:true,show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:!smoke,offscreen:smoke&&!inspectQA,devTools:!app.isPackaged}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   if(smoke)win.webContents.on('console-message',event=>console.log('RENDERER:',event.message));
   win.webContents.on('will-navigate',(event,url)=>{if(url!==localURL)event.preventDefault();});
   win.webContents.session.setPermissionRequestHandler((_wc,_permission,callback)=>callback(false));
   win.webContents.session.setPermissionCheckHandler(()=>false);
   win.webContents.session.webRequest.onBeforeRequest((details,callback)=>callback({cancel:!details.url.startsWith('file://')}));
-  win.once('ready-to-show',()=>{if(!smoke)win.show();});
+  win.once('ready-to-show',()=>{if(!smoke||inspectQA)win.show();});
   await win.loadFile(index);
   hardwareTimer=setInterval(async()=>{if(hardwareBusy)return;hardwareBusy=true;try{advanced.metrics=await advanced.call('metrics');}catch(e){advanced.metrics={error:e.message};}finally{hardwareBusy=false;}},5000);
   if(!smoke)setTimeout(()=>updates.check().catch(()=>{}),10000);
@@ -195,11 +255,11 @@ app.whenReady().then(async()=>{
     if(queueTick||!store.data.focusEnabled)return;queueTick=true;
     engine.serialize(()=>engine.focusTick()).catch(e=>{engine.lastFocus.errors=[e.message];}).finally(()=>{queueTick=false;});
   },4000);
-  if(smoke)await runSmoke();
+  if(smoke&&!inspectQA)await runSmoke();
 }).catch(error=>{dialog.showErrorBox('Hero Boost — inicialização',error.message);app.exit(1);});
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',event=>{
   if(quitting)return;event.preventDefault();quitting=true;clearInterval(focusInterval);clearInterval(hardwareTimer);
   const timeout=setTimeout(()=>{bridge?.close();app.exit(0);},12000);
-  (engine?engine.serialize(()=>engine.setFocus(false)):Promise.resolve()).catch(()=>{}).finally(()=>{clearTimeout(timeout);bridge?.close();app.quit();});
+  (engine?engine.serialize(()=>engine.setFocus(false)):Promise.resolve()).then(async()=>{if(smoke)await bridge.call('cleanupTestRegistry');}).catch(()=>{}).finally(()=>{clearTimeout(timeout);bridge?.close();app.quit();});
 });

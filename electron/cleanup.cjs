@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const DAY = 86400000;
 function inside(root, candidate) { const relative = path.relative(root,candidate); return relative !== '' && !relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative); }
+function belongs(root,item){return item.root?path.resolve(item.root).toLowerCase()===root.toLowerCase():inside(root,item.source);}
 class Cleanup {
   constructor(root, directory, store, clock=()=>Date.now()) { this.root=path.resolve(root); this.directory=path.resolve(directory); this.store=store; this.clock=clock; this.candidates=new Map(); }
   async scan() {
@@ -69,7 +70,7 @@ class Cleanup {
   }
   async recoverPending() {
     let changed=false;
-    for(const item of this.store.data.cleanup.filter(f=>f.status==='pending'&&inside(this.root,f.source))) {
+    for(const item of this.store.data.cleanup.filter(f=>f.status==='pending'&&belongs(this.root,f))) {
       try {await this.validateIsolated(item);item.status='isolated';changed=true;}
       catch(error) {
         if(error.code!=='ENOENT')continue;
@@ -80,13 +81,19 @@ class Cleanup {
   }
   async restore() {
     let restored=0,skipped=0;
-    for(const item of this.store.data.cleanup.filter(f=>['isolated','pending'].includes(f.status)&&inside(this.root,f.source))) {
+    for(const item of this.store.data.cleanup.filter(f=>['isolated','pending'].includes(f.status)&&belongs(this.root,f))) {
       try {
         await this.validateIsolated(item);
         // Do not overwrite newly-created files or recreate paths through junctions.
         try {await fs.lstat(item.source);skipped++;continue;} catch(e) {if(e.code!=='ENOENT') throw e;}
-        let parent=path.dirname(item.source);
-        while(parent!==this.root) {if(!inside(this.root,parent)||(await fs.lstat(parent)).isSymbolicLink()) throw new Error('Pasta original indisponível.'); parent=path.dirname(parent);}
+        const missing=[];let parent=path.dirname(item.source);
+        while(parent!==this.root) {
+          if(!inside(this.root,parent))throw new Error('Pasta original inválida.');
+          try{if((await fs.lstat(parent)).isSymbolicLink())throw new Error('Pasta redirecionada.');}catch(e){if(e.code!=='ENOENT')throw e;missing.push(parent);}
+          parent=path.dirname(parent);
+        }
+        if((await fs.realpath(this.root)).toLowerCase()!==this.root.toLowerCase())throw new Error('Raiz redirecionada.');
+        for(const directory of missing.reverse())await fs.mkdir(directory);
         if((await fs.realpath(path.dirname(item.source))).toLowerCase()!==path.dirname(item.source).toLowerCase()) throw new Error('Pasta original redirecionada.');
         // Exclusive copy prevents overwriting a file created between the check and restore.
         await fs.copyFile(item.destination,item.source,fs.constants.COPYFILE_EXCL);
@@ -100,7 +107,7 @@ class Cleanup {
   async purge(confirmation) {
     if(confirmation!=='EXCLUIR') throw new Error('Confirmação de exclusão necessária.');
     let count=0,bytes=0,skipped=0;
-    for(const item of this.store.data.cleanup.filter(f=>['isolated','pending'].includes(f.status)&&inside(this.root,f.source))) {
+    for(const item of this.store.data.cleanup.filter(f=>['isolated','pending'].includes(f.status)&&belongs(this.root,f))) {
       try {await this.validateIsolated(item);await fs.unlink(item.destination);item.status='deleted';} catch {skipped++;continue;}
       await this.store.save();count++;bytes+=item.size;
     }

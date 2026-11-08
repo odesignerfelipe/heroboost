@@ -73,3 +73,36 @@ test('serializes changes and survives a rejected operation',async()=>{
   const second=f.engine.serialize(async()=>{order.push(2);});
   await assert.rejects(first);await second;assert.deepEqual(order,[1,2]);
 });
+
+test('one rejected setting is reported without preventing independent choices',async()=>{
+  const f=fixture(),original=f.bridge.call;
+  f.bridge.call=async(action,p)=>{if(action==='writeSetting'&&p.id==='capture')throw new Error('Access denied');return original(action,p);};
+  const result=await f.engine.applyIds(['capture','tips']);
+  assert.equal(result.applied,1);assert.equal(result.failed.length,1);assert.equal(result.failed[0].id,'capture');
+  assert.equal(f.store.data.journal[0].status,'failed');assert.equal(f.values.capture.exists,false);assert.equal(f.values.tips.value,0);
+  assert.equal((await f.engine.revertAll()).errors.length,0);assert.equal(f.values.tips.exists,false);
+});
+
+test('an interrupted response with a confirmed write is counted as applied',async()=>{
+  const f=fixture(),original=f.bridge.call;let lost=true;
+  f.bridge.call=async(action,p)=>{const result=await original(action,p);if(action==='writeSetting'&&lost){lost=false;throw new Error('Response interrupted');}return result;};
+  assert.deepEqual(await f.engine.applyIds(['capture']),{applied:1,skipped:0});
+  assert.equal(f.store.data.journal[0].status,'applied');await f.engine.revertAll();assert.equal(f.values.capture.exists,false);
+});
+
+test('successive power choices restore in reverse order to the real original',async()=>{
+  const f=fixture();let active='original';
+  f.bridge.call=async(action,p)=>{
+    if(action==='power')return {active,plans:['original','first','second'].map(id=>({id}))};
+    if(action==='info')return {laptop:false};
+    if(action==='setPower'){active=p.id;return {active};}throw new Error(action);
+  };
+  await f.engine.setPower('first');await f.engine.setPower('second');assert.equal(active,'second');
+  const result=await f.engine.revertAll();assert.equal(result.errors.length,0);assert.equal(result.restored,2);assert.equal(active,'original');
+});
+
+test('an unconfirmed restoration stays recoverable instead of reporting success',async()=>{
+  const f=fixture();await f.engine.applyIds(['tips']);const original=f.bridge.call;
+  f.bridge.call=async(action,p)=>action==='writeSetting'?f.values.tips:original(action,p);
+  await assert.rejects(()=>f.engine.revert(f.store.data.journal[0].id),/não confirmou/);assert.equal(f.store.data.journal[0].status,'applied');
+});
