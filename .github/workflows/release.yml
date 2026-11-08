@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+concurrency:
+  group: hero-boost-release
+  cancel-in-progress: false
 jobs:
   windows:
     runs-on: windows-latest
@@ -20,6 +23,10 @@ jobs:
       - run: npm test
       - run: npm run test:native
       - run: npm run smoke
+      - name: Prepare one release draft
+        run: node .github/scripts/prepare-release.cjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish draft
         run: npx electron-builder --win nsis portable --publish always
         env:
