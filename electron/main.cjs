@@ -189,6 +189,30 @@ async function runSmoke() {
       const report=state.connection.reports.at(-1);if(!report||report.destination.summary.received!==20||report.hops[0]?.status!=='Success')throw new Error('Connection UI measurement failed');
       return {target:report.target,received:report.destination.summary.received,trace:true,exportEnabled:!document.querySelector('[data-action="connectionExport"]').disabled};
     })()`);
+    const realUpdateState=updates.state;
+    updates.state={...updates.state,status:'available',version:'99.0.0 (teste isolado)'};
+    const updateNotice=await win.webContents.executeJavaScript(`(async()=>{
+      const pause=ms=>new Promise(r=>setTimeout(r,ms));
+      const until=async fn=>{for(let i=0;i<40;i++){if(fn())return;await pause(100);}throw new Error('Update confirmation timeout');};
+      clearInterval(refreshTimer);
+      await reload();const notice=document.querySelector('#global-update-notice');
+      if(notice.hidden||!document.querySelector('#global-update-action').textContent.includes('Atualizar para'))throw new Error('Update button missing');
+      document.querySelector('#global-update-action').click();await until(()=>document.querySelector('dialog').open);
+      document.querySelector('[data-cancel]').click();await until(()=>!document.querySelector('dialog').open);
+      await navigate('profiles');if(notice.hidden)throw new Error('Update notice lost during navigation');
+      window.scrollTo(0,1000);await pause(100);if(notice.getBoundingClientRect().top<0)throw new Error('Update notice not sticky');window.scrollTo(0,0);
+      state.telemetry.updates={status:'downloading',version:'99.0.0',progress:42};updateMetrics();
+      if(!document.querySelector('#global-update-action').disabled||!notice.textContent.includes('42%'))throw new Error('Download progress missing');
+      state.telemetry.updates={status:'downloaded',version:'99.0.0'};updateMetrics();document.querySelector('#global-update-action').click();await until(()=>document.querySelector('dialog').open);
+      if(!document.querySelector('#dialog-title').textContent.includes('Instalar'))throw new Error('Install confirmation missing');document.querySelector('[data-cancel]').click();await until(()=>!document.querySelector('dialog').open);
+      state.telemetry.updates={status:'error',version:'99.0.0',error:'Offline test'};updateMetrics();if(document.querySelector('#global-update-action').dataset.action!=='checkUpdates')throw new Error('Retry unavailable');
+      state.telemetry.updates={status:'current',version:null};updateMetrics();if(!notice.hidden)throw new Error('Current version shows false update');
+      state.telemetry.updates={status:'available',version:'99.0.0 (teste isolado)'};updateMetrics();if(notice.hidden||!document.querySelector('#global-update-action'))throw new Error('Notice did not recover');
+      return {available:true,navigation:true,sticky:true,progress:true,downloadConfirmation:true,installConfirmation:true,retry:true,simulatedRelease:true};
+    })()`);
+    await fs.writeFile(path.join(qaRoot,'update-notice.png'),(await win.webContents.capturePage()).toPNG());
+    updates.state=realUpdateState;
+    await win.webContents.executeJavaScript("(async()=>{await reload();await navigate('connection');})()");
     const drivers=await advanced.call('drivers');const packages=array(await advanced.call('packages'));const timer=await advanced.call('timer');const hid=await logitech.list();
     const services=array(await advanced.call('services')),tasks=array(await advanced.call('tasks')),network=await advanced.call('network'),boot=await advanced.call('boot');
     if(!network.AutoTuningLevelLocal||services.some(s=>!s.start||typeof s.delayed!=='boolean'))throw new Error('Inventário nativo incompleto.');
@@ -210,7 +234,7 @@ async function runSmoke() {
     const light=await win.webContents.executeJavaScript("document.body.dataset.theme==='light'");
     await win.webContents.executeJavaScript("if(document.body.dataset.theme==='light')document.querySelector('[data-action=\"theme\"]').click()");
     if(!light)throw new Error('Tema claro não ativou.');
-    const report={ok:true,checklist,cs2:cs2Flow,connection:connectionFlow,packaged:app.isPackaged,os:state.info.os,settings:state.settings.length,profiles:state.profiles.length,startup:startup.length,drivers:drivers.items.length,optionalApps:packages.length,services:services.length,tasks:tasks.length,network,bootLogAvailable:boot.available,timerMs:timer.currentMs,logitechDevices:hid.length,hardware:advanced.metrics,lightTheme:light,changes:store.data.journal.filter(j=>['applied','pending'].includes(j.status)).length,results};
+    const report={ok:true,checklist,cs2:cs2Flow,connection:connectionFlow,updateNotice,packaged:app.isPackaged,os:state.info.os,settings:state.settings.length,profiles:state.profiles.length,startup:startup.length,drivers:drivers.items.length,optionalApps:packages.length,services:services.length,tasks:tasks.length,network,bootLogAvailable:boot.available,timerMs:timer.currentMs,logitechDevices:hid.length,hardware:advanced.metrics,lightTheme:light,changes:store.data.journal.filter(j=>['applied','pending'].includes(j.status)).length,results};
     await fs.writeFile(path.join(qaRoot,'smoke.json'),JSON.stringify(report,null,2));
     console.log(JSON.stringify(report));app.quit();
   }catch(e){console.error(e);try{await bridge.call('cleanupTestRegistry');}catch{}app.exit(1);}
@@ -250,7 +274,7 @@ app.whenReady().then(async()=>{
   win.once('ready-to-show',()=>{if(!smoke||inspectQA)win.show();});
   await win.loadFile(index);
   hardwareTimer=setInterval(async()=>{if(hardwareBusy)return;hardwareBusy=true;try{advanced.metrics=await advanced.call('metrics');}catch(e){advanced.metrics={error:e.message};}finally{hardwareBusy=false;}},5000);
-  if(!smoke)setTimeout(()=>updates.check().catch(()=>{}),10000);
+  if(!smoke){updates.start();win.on('focus',()=>updates.checkIfDue().catch(()=>{}));}
   focusInterval=setInterval(()=>{
     if(queueTick||!store.data.focusEnabled)return;queueTick=true;
     engine.serialize(()=>engine.focusTick()).catch(e=>{engine.lastFocus.errors=[e.message];}).finally(()=>{queueTick=false;});
@@ -259,7 +283,7 @@ app.whenReady().then(async()=>{
 }).catch(error=>{dialog.showErrorBox('Hero Boost — inicialização',error.message);app.exit(1);});
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',event=>{
-  if(quitting)return;event.preventDefault();quitting=true;clearInterval(focusInterval);clearInterval(hardwareTimer);
+  if(quitting)return;event.preventDefault();quitting=true;clearInterval(focusInterval);clearInterval(hardwareTimer);updates?.stop();
   const timeout=setTimeout(()=>{bridge?.close();app.exit(0);},12000);
   (engine?engine.serialize(()=>engine.setFocus(false)):Promise.resolve()).then(async()=>{if(smoke)await bridge.call('cleanupTestRegistry');}).catch(()=>{}).finally(()=>{clearTimeout(timeout);bridge?.close();app.quit();});
 });

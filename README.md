@@ -1,10 +1,10 @@
-# Hero Boost 0.3.1
+# Hero Boost 0.3.2
 
 Aplicativo desktop para Windows 10/11 x64. Interface em português com a identidade fornecida: escudo HB, laranja `#FF6A00` / `#FF8A1F`, grafite e azul elétrico `#00D6FF`. Implementação independente, inspirada nas categorias do [Dilera Boost](https://www.dileraboost.com.br/).
 
 ## Usar no Windows
 
-Baixe o instalador na [release pública](https://github.com/odesignerfelipe/heroboost/releases/latest). Preferencialmente execute **`Hero-Boost-0.3.1-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`Hero-Boost-0.3.1-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
+Baixe o instalador na [release pública](https://github.com/odesignerfelipe/heroboost/releases/latest). Preferencialmente execute **`Hero-Boost-0.3.2-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`Hero-Boost-0.3.2-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
 
 1. Abra o Hero e confira o diagnóstico.
 2. Em **Perfis de uso**, revise o perfil adequado à sua máquina. Aplique somente depois de ler as escolhas.
@@ -42,7 +42,7 @@ O app inicia com permissões normais. O botão **Abrir como administrador** rest
 | Recuperação | Valores exatos, ausência e tipo do Registro; conflitos externos bloqueados; recuperação de prioridades/quarentena interrompidas | Falha de disco, exclusão/corrupção do histórico e mudanças externas podem exigir recuperação manual. |
 | Ponto de restauração | Tentativa antes do primeiro ajuste com administrador; criação manual nas configurações | Depende da Proteção do Sistema e frequência permitida. Falhas são mostradas; backup por ajuste é independente. |
 | Interface | Tema claro/escuro, movimento reduzido e tour de cinco passos | Preferências locais, sem conta. |
-| Atualizações | GitHub `odesignerfelipe/heroboost`, consulta automática na versão instalada; checksum e instalação confirmada | Exige release pública com instalador e `latest.yml`. Portátil tem atualização manual. Sem certificado, a confiança depende do canal de publicação. |
+| Atualizações | GitHub `odesignerfelipe/heroboost`, aviso com botão em qualquer tela; busca na abertura, a cada 30 min e ao voltar à janela após 5 min; checksum e instalação confirmada | Exige release pública com instalador e `latest.yml`. Portátil tem atualização manual. Sem certificado, a confiança depende do canal de publicação. |
 
 Não há garantia de FPS, latência, fim de travamentos ou melhoria em qualquer PC. Algumas preferências exigem reabrir programas, sair/entrar na sessão ou reiniciar. O valor gravado não prova que uma versão futura do Windows/navegador ainda o consuma.
 
@@ -75,7 +75,7 @@ npm run dist
 
 Os testes verificam persistência antes da mudança, gravações concorrentes, falhas parciais, restauração em ordem inversa, conflitos, PID reutilizado, preferências protegidas, serviços/tarefas/rede simulados, mensagens HID++ simuladas, arquivos descartáveis reais, junções, sessões CS2, CFG e estatísticas de conexão. Um teste nativo altera/restaura prioridade de um processo descartável; probes e traceroute usam loopback. Com administrador, um teste cria e remove somente uma política QoS temporária para um executável descartável que nunca é iniciado. Ações destrutivas não são executadas contra serviços, drivers, apps ou configurações reais do usuário para validar a entrega.
 
-`smoke` usa `.qa/smoke-user-data` e renderização oculta. Visita as 17 telas, verifica os controles, temas, revisão/cancelamento e executa pelos botões o checklist (selecionar/aplicar/desfazer) e uma sessão CS2 (ativar/desfazer). Todas as preferências do catálogo são redirecionadas para uma chave privada `HKCU\Software\HeroBoost-Tests-<GUID>`, removida ao final. O executável CS2 é um arquivo descartável, nunca iniciado. O diagnóstico da interface usa loopback. Produz `.qa/smoke.json` e capturas das telas. Não controla mouse/teclado, altera preferências reais do Windows, limpa arquivos, remove apps, troca planos ou instala drivers.
+`smoke` usa `.qa/smoke-user-data` e renderização oculta. Visita as 17 telas, verifica os controles, temas, revisão/cancelamento e executa pelos botões o checklist (selecionar/aplicar/desfazer) e uma sessão CS2 (ativar/desfazer). Também simula uma release para verificar aviso global, navegação, posição ao rolar, progresso, falha/repetição e cancelamento das confirmações de download/instalação; nenhum pacote fictício é baixado. Todas as preferências do catálogo são redirecionadas para uma chave privada `HKCU\Software\HeroBoost-Tests-<GUID>`, removida ao final. O executável CS2 é um arquivo descartável, nunca iniciado. O diagnóstico da interface usa loopback. Produz `.qa/smoke.json` e capturas das telas. Não controla mouse/teclado, altera preferências reais do Windows, limpa arquivos, remove apps, troca planos ou instala drivers.
 
 ## Publicação de versões
 
