@@ -1,10 +1,10 @@
-# Hero Boost 0.5.0
+# Hero Boost 0.5.1
 
 Aplicativo desktop para Windows 10/11 x64. Interface em português com a identidade fornecida: escudo HB, laranja `#FF6A00` / `#FF8A1F`, grafite e azul elétrico `#00D6FF`. Implementação independente, inspirada nas categorias do [Dilera Boost](https://www.dileraboost.com.br/).
 
 ## Usar no Windows
 
-Baixe o instalador na [release pública](https://github.com/odesignerfelipe/heroboost/releases/latest). Preferencialmente execute **`Hero-Boost-0.5.0-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`Hero-Boost-0.5.0-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
+Baixe o instalador na [release pública](https://github.com/odesignerfelipe/heroboost/releases/latest). Preferencialmente execute **`Hero-Boost-0.5.1-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`Hero-Boost-0.5.1-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
 
 1. Abra o Hero e confira o diagnóstico.
 2. Em **Perfis de uso**, revise o perfil adequado à sua máquina. Aplique somente depois de ler as escolhas.
@@ -28,7 +28,7 @@ O app inicia com permissões normais. O botão **Abrir como administrador** rest
 | Inicialização | Run de HKCU, HKLM e HKLM WOW6432Node; desativação com backup; entradas de segurança protegidas | Atalhos de pastas e tarefas de logon adicionais ficam no painel oficial do Windows. |
 | Impacto de login | Eventos 100/101 do Diagnostics-Performance, com tempo e degradação reportados pelo Windows | O log pode estar desabilitado, vazio ou inacessível. Não inventa tempos nem atribui causalidade a cada entrada. |
 | Debloat | Lista permitida de apps opcionais; remoção por conta, com tentativa de registro pelo manifesto no histórico | Remoção pode apagar dados. Se o Windows apagar os arquivos do pacote, reinstale pela Store. Não é totalmente reversível. |
-| Manutenção e RAM | Diagnóstico de RAM disponível, commit/limite, CPU, paginação e processos; cache manual/automático; recuperação opcional de RAM de apps permitidos | Automático desligado inicialmente. Exige app aberto; não encerra processos, não altera pagefile/standby list. Detalhes e limites em [manutenção 0.5.0](docs/maintenance-0.5.0.md). |
+| Manutenção e RAM | Diagnóstico de RAM disponível, commit/limite, CPU, paginação e processos; cache manual/automático; recuperação opcional de RAM de apps permitidos | Automático desligado inicialmente. Exige app aberto; não encerra processos, não altera pagefile/standby list. Detalhes e limites em [manutenção 0.5.1](docs/maintenance-0.5.1.md). |
 | Foco Adobe | Detecta executáveis válidos em locais padrão e em execução; prioriza Acima do normal; opção acompanha janela ativa e restaura ao trocar | Não muda projetos, plugins, scratch ou preferências internas. Serviços e timer desligados neste preset. Render em segundo plano exige desmarcar janela ativa. |
 | Limpeza | Temporários, cache DirectX/NVIDIA e cache padrão de Chrome, Edge e Brave; análise, quarentena, restauração sem sobrescrever e exclusão separada | Arquivos criados e modificados há mais de 7 dias. Navegador deve estar fechado. Não inclui cookies/credenciais. Shaders podem causar recompilação temporária. |
 | Lixeira | Esvaziamento pelo Windows após confirmação digitada | Definitivo, sem desfazer. Fora dos perfis automáticos. |

@@ -1,4 +1,4 @@
-# Manutenção e RAM — Hero Boost 0.5.0
+# Manutenção e RAM — Hero Boost 0.5.1
 
 Esta versão acrescenta intervenções delimitadas e medições para investigar lentidão com vários programas, edição/preview e jogos. Não existe garantia de aumento de FPS ou fim de travamentos. Uma redução de RAM residente não prova ganho de velocidade; os testes funcionais não substituem um benchmark dos projetos e partidas do usuário.
 

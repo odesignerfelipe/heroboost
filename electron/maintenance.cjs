@@ -25,7 +25,7 @@ class Maintenance {
   }
   async configure(value,confirmation){const prior=structuredClone(this.store.data.maintenance),next=validateConfig(value,prior,confirmation);Object.assign(this.store.data.maintenance,next);try{await this.store.save();}catch(error){this.store.data.maintenance=prior;throw error;}return next;}
   async addMemoryApp(file){const canonical=await executable(file);if(workProtected({path:canonical})||this.store.data.focusApps.some(p=>p.path.toLowerCase()===canonical.toLowerCase()))throw new Error('Adobe, jogos, Windows e programas prioritários são protegidos da recuperação de RAM.');const apps=this.store.data.maintenance.memory.apps;if(apps.length>=12)throw new Error('Limite de 12 aplicativos de segundo plano.');if(!apps.some(p=>p.toLowerCase()===canonical.toLowerCase())){apps.push(canonical);try{await this.store.save();}catch(error){apps.pop();throw error;}}return canonical;}
-  async removeMemoryApp(file){const apps=this.store.data.maintenance.memory.apps;this.store.data.maintenance.memory.apps=apps.filter(p=>p.toLowerCase()!==String(file).toLowerCase());try{await this.store.save();}catch(error){this.store.data.maintenance.memory.apps=apps;throw error;}}
+  async removeMemoryApp(file){const memory=this.store.data.maintenance.memory,prior=structuredClone(memory);memory.apps=memory.apps.filter(p=>p.toLowerCase()!==String(file).toLowerCase());if(!memory.apps.length)memory.enabled=false;try{await this.store.save();}catch(error){this.store.data.maintenance.memory=prior;throw error;}}
   async log(entry){this.store.data.maintenance.history.unshift({id:randomUUID(),date:new Date().toISOString(),...entry});this.store.data.maintenance.history=this.store.data.maintenance.history.slice(0,30);await this.store.save();}
   async inspect(){const result=await this.memory.inspect();this.state.error=null;return result;}
   async trim(automatic=false){const result=await this.memory.trim(automatic);this.state.lastMemory=result;await this.log({kind:'memory',...result});return result;}
@@ -57,7 +57,7 @@ class Maintenance {
       const due=Date.now()-config.lastCacheRun>=config.cache.intervalHours*3600000&&Date.now()-this.lastCacheAttempt>=5*60000;
       if(config.cache.enabled&&due){
         const reason=automaticCacheReason(snapshot,this.store.data.focusApps,this.idleSeconds());this.state.message=reason||'Manutenção automática de caches em andamento.';
-        if(!reason){this.lastCacheAttempt=Date.now();this.state.status='cache';await this.engine.serialize(()=>this.cacheRun({ids:config.cache.sources,remove:true,automatic:true}));}
+        if(!reason){this.lastCacheAttempt=Date.now();this.state.status='cache';const result=await this.engine.serialize(()=>this.cacheRun({ids:config.cache.sources,remove:true,automatic:true}));this.state.message=result.skipped||'Rodada de cache concluída. Confira o resultado abaixo; aguardando o próximo intervalo.';}
       }
       this.state.status='waiting';if(!this.state.message||!config.cache.enabled)this.state.message=config.memory.enabled?'Monitorando pressão de RAM; nenhum programa ativo é encerrado.':'Aguardando o próximo intervalo de cache.';
     }catch(error){this.state.status='error';this.state.error=error.message;}finally{this.tickBusy=false;}

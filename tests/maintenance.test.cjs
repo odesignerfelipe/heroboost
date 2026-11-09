@@ -74,3 +74,8 @@ test('automatic RAM defers under unknown paging, healthy memory or active Adobe 
     manager.inspect=async()=>{manager.latest={processes:[],pagesInput:0,...extra};manager.previous={usedPercent:90};};const result=await manager.trim(true);assert.ok(result.skipped);assert.equal(result.residentReduced,0);
   }
 });
+test('automatic completion leaves a waiting message and removing the last RAM app disables automation',async t=>{
+  const f=await fixture(t);f.store.data.maintenance.cache.enabled=true;f.manager.cacheRun=async()=>({deleted:{count:0}});await f.manager.tick();assert.equal(f.manager.state.status,'waiting');assert.match(f.manager.state.message,/concluída/);
+  f.store.data.maintenance.memory={enabled:true,threshold:85,apps:[app.path]};await f.manager.removeMemoryApp(app.path);assert.equal(f.store.data.maintenance.memory.enabled,false);
+  f.store.data.maintenance.memory={enabled:true,threshold:85,apps:[app.path]};f.store.save=async()=>{throw new Error('Disk full');};await assert.rejects(()=>f.manager.removeMemoryApp(app.path));assert.deepEqual(f.store.data.maintenance.memory.apps,[app.path]);assert.equal(f.store.data.maintenance.memory.enabled,true);
+});
