@@ -1,4 +1,4 @@
-# Manutenção e RAM — Hero Boost 0.5.1
+# Manutenção e RAM — Hero Boost 0.5.2
 
 Esta versão acrescenta intervenções delimitadas e medições para investigar lentidão com vários programas, edição/preview e jogos. Não existe garantia de aumento de FPS ou fim de travamentos. Uma redução de RAM residente não prova ganho de velocidade; os testes funcionais não substituem um benchmark dos projetos e partidas do usuário.
 
@@ -17,7 +17,7 @@ Navegador aberto bloqueia seu cache. Adobe/jogos/programas da lista de foco aber
 
 O manual atende até 1.000 arquivos e 512 MB; o automático, até 200 arquivos e 512 MB. A varredura e a rodada têm limites de tempo e podem ser parciais. Isolamento permite restauração e ainda ocupa disco. Exclusão definitiva exige digitar **EXCLUIR**. O automático exige consentimento separado ao habilitar ou mudar fontes: exclui apenas o lote criado naquela rodada, nunca toda a quarentena ou um lote manual anterior.
 
-Intervalos: 6 horas, 24 horas ou uma semana. A cada 30 segundos, com o app aberto, verifica se a rodada está vencida. Aguarda dois minutos sem interação, CPU até 20%, RAM abaixo de 85%, leitura de paginação disponível e até 100 páginas/s, sem Adobe/jogos/programas prioritários abertos. Interrompe ao retomar o uso do PC. Não instala tarefas, serviços ou agendamentos do Windows. Registra arquivos/bytes efetivamente excluídos e espaço livre antes/depois; tamanho lógico e variação do espaço livre podem diferir.
+Intervalos: 6 horas, 24 horas ou uma semana. A cada 30 segundos, com o app aberto, verifica se a rodada está vencida. Aguarda dois minutos sem interação, CPU até 20%, RAM abaixo de 85%, leitura de paginação disponível e até 100 páginas/s, sem Adobe/jogos/programas prioritários abertos. Helpers Creative Cloud conhecidos permanecem protegidos, mas não bloqueiam sozinhos a manutenção ociosa. Interrompe ao retomar o uso do PC. Não instala tarefas, serviços ou agendamentos do Windows. Registra arquivos/bytes efetivamente excluídos e espaço livre antes/depois; tamanho lógico e variação do espaço livre podem diferir.
 
 ## Recuperação opcional de RAM
 

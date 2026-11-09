@@ -1,6 +1,10 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path');
-const {discoverCreative,addFocusPreset}=require('../electron/workloads.cjs');
+const {discoverCreative,addFocusPreset,activeWorkloads,workProtected}=require('../electron/workloads.cjs');
+test('Creative Cloud helpers stay protected without blocking idle maintenance forever',()=>{
+  const helper={path:'C:\\Adobe\\CoreSync.exe'};assert.equal(workProtected(helper),true);assert.deepEqual(activeWorkloads([helper]),[]);assert.deepEqual(activeWorkloads([helper],[helper]),[helper]);
+  for(const file of ['C:\\Adobe\\Photoshop.exe','D:\\Games\\Example\\game.exe','C:\\Work\\aerender.exe'])assert.equal(activeWorkloads([{path:file}]).length,1);
+});
 test('creative detection finds validated standard executables without searching projects',async t=>{
   const base=await fs.mkdtemp(path.join(process.cwd(),'.qa-creative-'));t.after(()=>{assert.equal(path.dirname(path.resolve(base)),process.cwd());return fs.rm(base,{recursive:true,force:true});});
   const adobe=path.join(base,'Adobe'),dir=path.join(adobe,'Adobe Photoshop 2026');await fs.mkdir(dir,{recursive:true});const file=path.join(dir,'Photoshop.exe');await fs.writeFile(file,'MZ fixture, never launched');
