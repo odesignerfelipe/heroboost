@@ -1,10 +1,10 @@
-# Hero Boost 0.4.0
+# Hero Boost 0.5.0
 
 Aplicativo desktop para Windows 10/11 x64. Interface em português com a identidade fornecida: escudo HB, laranja `#FF6A00` / `#FF8A1F`, grafite e azul elétrico `#00D6FF`. Implementação independente, inspirada nas categorias do [Dilera Boost](https://www.dileraboost.com.br/).
 
 ## Usar no Windows
 
-Baixe o instalador na [release pública](https://github.com/odesignerfelipe/heroboost/releases/latest). Preferencialmente execute **`Hero-Boost-0.4.0-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`Hero-Boost-0.4.0-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
+Baixe o instalador na [release pública](https://github.com/odesignerfelipe/heroboost/releases/latest). Preferencialmente execute **`Hero-Boost-0.5.0-Setup.exe`**. O instalador cria atalhos e prepara o canal de atualizações. Alternativa sem instalação: **`Hero-Boost-0.5.0-Windows.exe`**. Não é necessário instalar Node.js para usar o aplicativo.
 
 1. Abra o Hero e confira o diagnóstico.
 2. Em **Perfis de uso**, revise o perfil adequado à sua máquina. Aplique somente depois de ler as escolhas.
@@ -28,6 +28,8 @@ O app inicia com permissões normais. O botão **Abrir como administrador** rest
 | Inicialização | Run de HKCU, HKLM e HKLM WOW6432Node; desativação com backup; entradas de segurança protegidas | Atalhos de pastas e tarefas de logon adicionais ficam no painel oficial do Windows. |
 | Impacto de login | Eventos 100/101 do Diagnostics-Performance, com tempo e degradação reportados pelo Windows | O log pode estar desabilitado, vazio ou inacessível. Não inventa tempos nem atribui causalidade a cada entrada. |
 | Debloat | Lista permitida de apps opcionais; remoção por conta, com tentativa de registro pelo manifesto no histórico | Remoção pode apagar dados. Se o Windows apagar os arquivos do pacote, reinstale pela Store. Não é totalmente reversível. |
+| Manutenção e RAM | Diagnóstico de RAM disponível, commit/limite, CPU, paginação e processos; cache manual/automático; recuperação opcional de RAM de apps permitidos | Automático desligado inicialmente. Exige app aberto; não encerra processos, não altera pagefile/standby list. Detalhes e limites em [manutenção 0.5.0](docs/maintenance-0.5.0.md). |
+| Foco Adobe | Detecta executáveis válidos em locais padrão e em execução; prioriza Acima do normal; opção acompanha janela ativa e restaura ao trocar | Não muda projetos, plugins, scratch ou preferências internas. Serviços e timer desligados neste preset. Render em segundo plano exige desmarcar janela ativa. |
 | Limpeza | Temporários, cache DirectX/NVIDIA e cache padrão de Chrome, Edge e Brave; análise, quarentena, restauração sem sobrescrever e exclusão separada | Arquivos criados e modificados há mais de 7 dias. Navegador deve estar fechado. Não inclui cookies/credenciais. Shaders podem causar recompilação temporária. |
 | Lixeira | Esvaziamento pelo Windows após confirmação digitada | Definitivo, sem desfazer. Fora dos perfis automáticos. |
 | Análise de disco | Escolha de pasta; tamanhos por subpasta, maiores arquivos, gráfico e estatísticas de exclusão/quarentena | Somente leitura. Ignora links/junções e sinaliza análise parcial. Tamanho lógico não equivale a blocos físicos liberados. |
@@ -54,7 +56,7 @@ O foco desliga ao fechar o Hero. O próximo início tenta restaurar prioridades 
 
 Os dez últimos diagnósticos de conexão ficam no histórico local e podem conter IPs e nomes de interfaces. A exportação é manual: revise antes de compartilhar. O diagnóstico envia ICMP ao alvo informado e ao gateway; domínios exigem resolução DNS. Nenhum relatório é enviado ao desenvolvedor.
 
-Excluir quarentena, esvaziar Lixeira e remover dados de apps têm confirmações próprias. Isolar ainda ocupa espaço. A quarentena nunca é apagada em segundo plano.
+Excluir quarentena, esvaziar Lixeira e remover dados de apps têm confirmações próprias. Isolar ainda ocupa espaço. A limpeza automática exclui apenas seu próprio lote de caches após autorização explícita; os demais lotes da quarentena permanecem disponíveis para restauração.
 
 ## Desenvolvimento e testes
 
@@ -73,9 +75,9 @@ npm run dist
 
 `check` valida sintaxe JavaScript/PowerShell e UTF-8 com BOM para PowerShell 5.1. `test:native` usa apenas `HKCU\Software\HeroBoost-Tests-<GUID>`, removida ao final, para testar os helpers sem alterar preferências do Windows.
 
-Os testes verificam persistência antes da mudança, gravações concorrentes, falhas parciais, restauração em ordem inversa, conflitos, PID reutilizado, preferências protegidas, serviços/tarefas/rede simulados, mensagens HID++ simuladas, arquivos descartáveis reais, junções, sessões CS2, CFG e estatísticas de conexão. Um teste nativo altera/restaura prioridade de um processo descartável; probes e traceroute usam loopback. Com administrador, um teste cria e remove somente uma política QoS temporária para um executável descartável que nunca é iniciado. Ações destrutivas não são executadas contra serviços, drivers, apps ou configurações reais do usuário para validar a entrega.
+Os testes verificam persistência antes da mudança, gravações concorrentes, falhas parciais, restauração em ordem inversa, conflitos, PID reutilizado, preferências protegidas, serviços/tarefas/rede simulados, mensagens HID++ simuladas, arquivos descartáveis reais, junções, sessões CS2, CFG e estatísticas de conexão. Um teste nativo aplica EmptyWorkingSet somente a um GUI descartável minimizado de 128 MB e verifica que a alocação e o conteúdo permanecem intactos; outro altera/restaura prioridade de um processo descartável; probes e traceroute usam loopback. Com administrador, um teste cria e remove somente uma política QoS temporária para um executável descartável que nunca é iniciado. Ações destrutivas não são executadas contra serviços, drivers, apps ou configurações reais do usuário para validar a entrega.
 
-`smoke` usa `.qa/smoke-user-data` e renderização oculta. Visita as 17 telas, verifica os controles, temas, revisão/cancelamento e executa pelos botões o checklist (selecionar/aplicar/desfazer) e uma sessão CS2 (ativar/desfazer). Também simula uma release para verificar aviso global, navegação, posição ao rolar, progresso, falha/repetição e cancelamento das confirmações de download/instalação; nenhum pacote fictício é baixado. Todas as preferências do catálogo são redirecionadas para uma chave privada `HKCU\Software\HeroBoost-Tests-<GUID>`, removida ao final. O executável CS2 é um arquivo descartável, nunca iniciado. O diagnóstico da interface usa loopback. Exercita favoritos, cartões/lista, aplicação individual, menu recolhível, seleção de limpeza e filtros de restauração. Verifica 1040 × 740 com menu aberto/recolhido e produz `.qa/smoke.json` e capturas das telas. Não controla mouse/teclado, altera preferências reais do Windows, limpa arquivos, remove apps, troca planos ou instala drivers.
+`smoke` usa `.qa/smoke-user-data` e renderização oculta. Visita as 18 telas, verifica os controles, temas, revisão/cancelamento e executa pelos botões o checklist (selecionar/aplicar/desfazer) e uma sessão CS2 (ativar/desfazer). Também simula uma release para verificar aviso global, navegação, posição ao rolar, progresso, falha/repetição e cancelamento das confirmações de download/instalação; nenhum pacote fictício é baixado. Todas as preferências do catálogo são redirecionadas para uma chave privada `HKCU\Software\HeroBoost-Tests-<GUID>`, removida ao final. O executável CS2 é um arquivo descartável, nunca iniciado. O diagnóstico da interface usa loopback. Exercita favoritos, cartões/lista, aplicação individual, menu recolhível, seleção de limpeza, filtros de restauração e Manutenção e RAM (diagnóstico, configurações, confirmação digitada e exclusão de cache descartável com preservação de projeto). Verifica 1040 × 740 com menu aberto/recolhido e produz `.qa/smoke.json` e capturas das telas. Não controla mouse/teclado, altera preferências reais do Windows, limpa arquivos pessoais, remove apps, troca planos ou instala drivers.
 
 ## Publicação de versões
 

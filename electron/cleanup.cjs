@@ -7,16 +7,17 @@ function inside(root, candidate) { const relative = path.relative(root,candidate
 function belongs(root,item){return item.root?path.resolve(item.root).toLowerCase()===root.toLowerCase():inside(root,item.source);}
 class Cleanup {
   constructor(root, directory, store, clock=()=>Date.now()) { this.root=path.resolve(root); this.directory=path.resolve(directory); this.store=store; this.clock=clock; this.candidates=new Map(); }
-  async scan() {
+  async scan(options={}) {
     const rootStat = await fs.lstat(this.root);
     if (rootStat.isSymbolicLink()) throw new Error('A pasta temporária é um link. Limpeza bloqueada por segurança.');
     const realRoot=await fs.realpath(this.root);
     if (realRoot.toLowerCase()!==this.root.toLowerCase()) throw new Error('A pasta temporária foi redirecionada. Limpeza bloqueada.');
-    this.candidates.clear(); let visited=0; let skipped=0; let truncated=false;
+    this.candidates.clear(); let visited=0; let skipped=0; let truncated=false;const started=Date.now();
     const walk = async (directory,depth=0) => {
       if(depth>12) {truncated=true;return;}
       let items; try {items=await fs.readdir(directory,{withFileTypes:true});} catch {skipped++;return;}
       for(const item of items) {
+        if(options.shouldContinue&&!options.shouldContinue()||Date.now()-started>(options.timeLimitMs||15000)){truncated=true;return;}
         if(++visited>12000 || this.candidates.size>=2000) {truncated=true;return;}
         const source=path.join(directory,item.name);
         if(!inside(this.root,source) || item.isSymbolicLink()) {skipped++;continue;}
@@ -45,15 +46,19 @@ class Cleanup {
     const stat=await fs.lstat(item.source);
     if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==item.size||stat.mtimeMs!==item.mtime||stat.ino!==item.ino) throw new Error('Arquivo alterado desde a análise.');
   }
-  async isolate() {
+  async isolate(options={}) {
     if(!this.candidates.size) throw new Error('Analise os temporários antes de limpar.');
     await fs.mkdir(this.directory,{recursive:true});
     if((await fs.lstat(this.directory)).isSymbolicLink()||(await fs.realpath(this.directory)).toLowerCase()!==this.directory.toLowerCase()) throw new Error('Quarentena redirecionada.');
     let moved=0,bytes=0,skipped=0;
     for(const item of this.candidates.values()) {
+      if(options.shouldContinue&&!options.shouldContinue())break;
+      if(moved>=(options.maxFiles??2000)||bytes+item.size>(options.maxBytes??Number.MAX_SAFE_INTEGER)){skipped++;continue;}
       try {await this.validateSource(item);}catch{skipped++;continue;}
+      if(options.allowFile&&!await options.allowFile(item.source)){skipped++;continue;}
+      if(options.shouldContinue&&!options.shouldContinue())break;
       const destination=path.join(this.directory,item.id);
-      const record={...item,root:this.root,destination,status:'pending',date:new Date().toISOString()};
+      const record={...item,root:this.root,destination,status:'pending',date:new Date().toISOString(),...(options.batch?{maintenanceBatch:options.batch}:{})};
       this.store.data.cleanup.push(record); await this.store.save();
       try {await fs.rename(item.source,destination);record.status='isolated';}
       catch {record.status='skipped';await this.store.save();skipped++;continue;}
@@ -104,11 +109,12 @@ class Cleanup {
     }
     return {count:restored,skipped};
   }
-  async purge(confirmation) {
+  async purge(confirmation,options={}) {
     if(confirmation!=='EXCLUIR') throw new Error('Confirmação de exclusão necessária.');
     let count=0,bytes=0,skipped=0;
-    for(const item of this.store.data.cleanup.filter(f=>['isolated','pending'].includes(f.status)&&belongs(this.root,f))) {
-      try {await this.validateIsolated(item);await fs.unlink(item.destination);item.status='deleted';} catch {skipped++;continue;}
+    for(const item of this.store.data.cleanup.filter(f=>['isolated','pending'].includes(f.status)&&belongs(this.root,f)&&(!options.batch||f.maintenanceBatch===options.batch))) {
+      if(options.shouldContinue&&!options.shouldContinue())break;
+      try {await this.validateIsolated(item);if(options.shouldContinue&&!options.shouldContinue())break;await fs.unlink(item.destination);item.status='deleted';} catch {skipped++;continue;}
       await this.store.save();count++;bytes+=item.size;
     }
     return {count,bytes,skipped};

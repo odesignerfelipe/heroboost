@@ -32,6 +32,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify packaged application
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath '.\release\win-unpacked\Hero Boost.exe' -ArgumentList '--smoke-test' -WindowStyle Hidden -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw 'Packaged application smoke failed.' }
+          $report = Get-Content -LiteralPath '.\release\win-unpacked\.qa\smoke.json' -Raw | ConvertFrom-Json
+          if (-not $report.ok -or -not $report.packaged -or -not $report.maintenance.cacheDeleted -or $report.changes -ne 0) { throw 'Packaged report verification failed.' }
       - uses: actions/upload-artifact@v4
         with:
           name: Hero-Boost-Windows

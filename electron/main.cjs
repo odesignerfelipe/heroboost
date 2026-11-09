@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,dialog,shell} = require('electron');
+const {app,BrowserWindow,ipcMain,dialog,shell,powerMonitor} = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
@@ -13,6 +13,8 @@ const {Logitech}=require('./logitech.cjs');
 const {Updates}=require('./updates.cjs');
 const {CS2,modes:cs2Modes}=require('./cs2.cjs');
 const {Connection}=require('./connection.cjs');
+const {Maintenance}=require('./maintenance.cjs');
+const {discoverCreative,addFocusPreset,workProtected}=require('./workloads.cjs');
 const {settings,profiles,support} = require('./catalog.cjs');
 app.setName('Hero Boost');
 const inspectQA=process.argv.includes('--inspect-qa');
@@ -23,7 +25,7 @@ if(smoke)app.setPath('userData',path.join(qaRoot,inspectQA?'inspection-user-data
 if(!app.requestSingleInstanceLock())app.quit();
 const index=path.join(__dirname,'..','ui','index.html');
 const localURL=pathToFileURL(index).href;
-let win,store,bridge,engine,cleanup,info,advanced,updates,cs2,connection,hardwareTimer,hardwareBusy=false,focusInterval,quitting=false,queueTick=false;
+let win,store,bridge,engine,cleanup,info,advanced,updates,cs2,connection,maintenance,maintenanceBridge,creativeCandidates=[],hardwareTimer,hardwareBusy=false,focusInterval,quitting=false,queueTick=false;
 const logitech=new Logitech();
 let previousCPU=os.cpus();
 function telemetry() {
@@ -35,7 +37,7 @@ function telemetry() {
 async function getState() {
   const current=await bridge.call('settings');
   const journal=[...store.data.journal].reverse().filter((entry,index)=>index<500||['pending','applied'].includes(entry.status));
-  return {testing:smoke,driverBackup:store.data.driverBackup?{count:store.data.driverBackup.count,date:store.data.driverBackup.date}:null,cs2:{...store.data.cs2,modes:cs2Modes},connection:store.data.connection,info,settings:settings.map(s=>({...s,unavailable:support(s,info),current:current[s.id],applied:current[s.id]?.exists&&current[s.id]?.kind===s.kind&&current[s.id]?.value===s.target})),profiles,profile:store.data.profile,focusApps:store.data.focusApps,backgroundApps:store.data.backgroundApps,focusOptions:store.data.focusOptions,restorePoint:store.data.restorePoint,updates:updates.state,focusEnabled:store.data.focusEnabled,focus:engine.lastFocus,journal,cleanupSources:await cleanup.available(),cleanupStats:{lastIsolation:store.data.cleanup.filter(f=>['isolated','restored','deleted'].includes(f.status)).at(-1)?.date||null,deletedBytes:store.data.cleanup.filter(f=>f.status==='deleted').reduce((sum,f)=>sum+f.size,0),restoredFiles:store.data.cleanup.filter(f=>f.status==='restored').length},cleanup:store.data.cleanup.filter(f=>['pending','isolated'].includes(f.status)).map(f=>({size:f.size,date:f.date})),hardware:advanced.metrics,telemetry:{...telemetry(),hardware:advanced.metrics},version:app.getVersion()};
+  return {testing:smoke,maintenance:{...maintenance.view(),sources:await maintenance.disk.available()},driverBackup:store.data.driverBackup?{count:store.data.driverBackup.count,date:store.data.driverBackup.date}:null,cs2:{...store.data.cs2,modes:cs2Modes},connection:store.data.connection,info,settings:settings.map(s=>({...s,unavailable:support(s,info),current:current[s.id],applied:current[s.id]?.exists&&current[s.id]?.kind===s.kind&&current[s.id]?.value===s.target})),profiles,profile:store.data.profile,focusApps:store.data.focusApps,backgroundApps:store.data.backgroundApps,focusOptions:store.data.focusOptions,restorePoint:store.data.restorePoint,updates:updates.state,focusEnabled:store.data.focusEnabled,focus:engine.lastFocus,journal,cleanupSources:await cleanup.available(),cleanupStats:{lastIsolation:store.data.cleanup.filter(f=>['isolated','restored','deleted'].includes(f.status)).at(-1)?.date||null,deletedBytes:store.data.cleanup.filter(f=>f.status==='deleted').reduce((sum,f)=>sum+f.size,0),restoredFiles:store.data.cleanup.filter(f=>f.status==='restored').length},cleanup:store.data.cleanup.filter(f=>['pending','isolated'].includes(f.status)).map(f=>({size:f.size,date:f.date})),hardware:advanced.metrics,telemetry:{...telemetry(),hardware:advanced.metrics},version:app.getVersion()};
 }
 function validateSender(event) {
   if(event.sender!==win?.webContents || event.senderFrame!==win.webContents.mainFrame || event.senderFrame.url!==localURL)throw new Error('Origem não autorizada.');
@@ -43,7 +45,7 @@ function validateSender(event) {
 function object(data) {if(!data||typeof data!=='object'||Array.isArray(data))throw new Error('Dados inválidos.');return data;}
 const actions={
   state:()=>getState(),
-  telemetry:()=>({...telemetry(),focus:engine.lastFocus,hardware:advanced.metrics,updates:updates.state}),
+  telemetry:()=>({...telemetry(),focus:engine.lastFocus,hardware:advanced.metrics,updates:updates.state,maintenanceState:maintenance.state}),
   refresh:async()=>{info=await bridge.call('info');engine.systemInfo=info;return getState();},
   apply:({ids})=>engine.serialize(async()=>{if(!smoke)await advanced.prepare();return engine.applyIds(ids);}),
   profile:({id})=>engine.serialize(async()=>{if(!smoke)await advanced.prepare();return engine.profile(id);}),
@@ -102,9 +104,17 @@ const actions={
   limitUpload:async({mbps})=>{advanced.admin();if(typeof mbps!=='number'||mbps<.1||mbps>1000)throw new Error('Informe limite entre 0,1 e 1000 Mbps.');const target=await dialog.showOpenDialog(win,{title:'Aplicativo cujo upload será limitado',properties:['openFile'],filters:[{name:'Executável',extensions:['exe']}]});if(target.canceled)return null;const executable=await fs.realpath(target.filePaths[0]);if(require('./engine.cjs').isProtectedProcess({path:executable}))throw new Error('Não é permitido limitar componentes do Windows ou de segurança.');const id='HeroBoost-Upload-'+require('node:crypto').randomUUID();return engine.serialize(()=>advanced.change('qos',id,'Limite de upload: '+path.basename(executable),{exists:true,path:executable.toLowerCase(),protocol:'Both',dscp:-1,rate:Math.round(mbps*1000000)}));},
   recycle:({confirmation})=>engine.serialize(()=>advanced.call('recycle',{confirmation})),
   focusOptions:({options})=>engine.serialize(()=>advanced.configureFocus(options)),
+  maintenanceInspect:()=>maintenance.inspect(),
+  maintenanceConfigure:({config,confirmation})=>engine.serialize(()=>maintenance.configure(config,confirmation)),
+  maintenanceTrim:()=>engine.serialize(()=>maintenance.trim(false)),
+  maintenanceCache:({ids,remove,confirmation})=>engine.serialize(()=>maintenance.cacheRun({ids,remove:remove===true,confirmation})),
+  memoryAddApp:async()=>{const selected=await dialog.showOpenDialog(win,{title:'Aplicativo de segundo plano permitido para RAM ociosa',properties:['openFile'],filters:[{name:'Aplicativo',extensions:['exe']}]});if(selected.canceled)return null;return engine.serialize(()=>maintenance.addMemoryApp(selected.filePaths[0]));},
+  memoryRemoveApp:({path})=>engine.serialize(()=>maintenance.removeMemoryApp(path)),
+  creativeDiscover:async()=>{creativeCandidates=await discoverCreative(await bridge.call('processes'),[process.env.ProgramFiles,process.env['ProgramFiles(x86)']]);return creativeCandidates;},
+  creativeActivate:({paths,foregroundOnly})=>engine.serialize(async()=>{if(!Array.isArray(paths)||!paths.length||paths.some(p=>!creativeCandidates.some(c=>c.path===p)))throw new Error('Detecte e selecione os aplicativos primeiro.');return addFocusPreset(engine,store,creativeCandidates.filter(p=>paths.includes(p.path)),foregroundOnly===true);}),
   addBackground:async()=>{
     const target=await dialog.showOpenDialog(win,{title:'Programa a reduzir durante o foco',properties:['openFile'],filters:[{name:'Executável',extensions:['exe']}]});if(target.canceled)return null;
-    const selected=target.filePaths[0];const {isProtectedProcess}=require('./engine.cjs');if(isProtectedProcess({path:selected})||path.extname(selected).toLowerCase()!=='.exe'||!(await fs.lstat(selected)).isFile())throw new Error('Escolha um aplicativo de usuário. Proteções e processos do Windows são excluídos.');
+    const selected=target.filePaths[0];if(workProtected({path:selected})||path.extname(selected).toLowerCase()!=='.exe'||!(await fs.lstat(selected)).isFile())throw new Error('Escolha um aplicativo de segundo plano. Windows, criação e jogos são protegidos.');
     return engine.serialize(async()=>{if(store.data.backgroundApps.length>=20)throw new Error('Limite de programas atingido.');if(store.data.backgroundApps.some(a=>a.path.toLowerCase()===selected.toLowerCase()))throw new Error('Programa já está na lista.');const item={id:require('node:crypto').randomUUID(),path:selected,name:path.basename(selected,'.exe')};store.data.backgroundApps.push(item);await store.save();return item;});
   },
   removeBackground:({id})=>engine.serialize(async()=>{store.data.backgroundApps=store.data.backgroundApps.filter(a=>a.id!==id);await store.save();await advanced.syncFocus();return true;}),
@@ -114,7 +124,7 @@ const actions={
     if(info.admin)return false;await engine.setFocus(false);
     const {execFile}=require('node:child_process');const executable=process.execPath.replace(/'/g,"''");const args=app.isPackaged?'':` -ArgumentList '${path.join(__dirname,'..').replace(/'/g,"''")}'`;
     app.releaseSingleInstanceLock();
-    try{await new Promise((resolve,reject)=>execFile(path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-Command',`Start-Process -FilePath '${executable}'${args} -Verb RunAs -ErrorAction Stop`],{windowsHide:true},error=>error?reject(new Error('Elevação cancelada ou recusada pelo Windows.')):resolve()));quitting=true;clearInterval(focusInterval);clearInterval(hardwareTimer);bridge.close();app.quit();return true;}
+    try{await new Promise((resolve,reject)=>execFile(path.join(process.env.SystemRoot,'System32','WindowsPowerShell','v1.0','powershell.exe'),['-NoProfile','-NonInteractive','-Command',`Start-Process -FilePath '${executable}'${args} -Verb RunAs -ErrorAction Stop`],{windowsHide:true},error=>error?reject(new Error('Elevação cancelada ou recusada pelo Windows.')):resolve()));quitting=true;clearInterval(focusInterval);clearInterval(hardwareTimer);updates.stop();maintenance.stop();maintenanceBridge.close();bridge.close();app.quit();return true;}
     catch(e){app.requestSingleInstanceLock();throw e;}
   }),
   windowsApps:()=>shell.openExternal('ms-settings:appsfeatures'),
@@ -134,7 +144,7 @@ async function runSmoke() {
     const startup=await engine.startup();
     const results=await win.webContents.executeJavaScript(`(async()=>{
       const results=[];
-      for(const page of ['profiles','adjustments','focus','performance','cleanup','startup','energy','debloat','mouse','timer','drivers','resources','history','cs2','connection','settings','dashboard']){
+      for(const page of ['profiles','adjustments','focus','performance','cleanup','startup','energy','debloat','mouse','timer','drivers','resources','history','cs2','connection','maintenance','settings','dashboard']){
         document.querySelector('[data-page="'+page+'"]').click();
         await new Promise(r=>setTimeout(r,250));
         results.push({page,visible:document.querySelector('main').innerText.length>80,title:document.querySelector('h1')?.textContent,breadcrumb:document.querySelector('#breadcrumb').textContent,controls:[...document.querySelectorAll('[data-action]')].every(el=>typeof handlers[el.dataset.action]==='function')});
@@ -152,7 +162,7 @@ async function runSmoke() {
       await new Promise(r=>setTimeout(r,150));
       return results;
     })()`);
-    if(results.some(r=>r.visible===false||r.controls===false)||!results.find(r=>r.dialog)||!results.find(r=>r.sandbox)||!results.find(r=>r.search)||new Set(results.filter(r=>r.page).map(r=>r.title)).size!==17)throw new Error('Teste de interface falhou.');
+    if(results.some(r=>r.visible===false||r.controls===false)||!results.find(r=>r.dialog)||!results.find(r=>r.sandbox)||!results.find(r=>r.search)||new Set(results.filter(r=>r.page).map(r=>r.title)).size!==18)throw new Error('Teste de interface falhou.');
     const workspaceFlow=await win.webContents.executeJavaScript(`(async()=>{
       const pause=ms=>new Promise(r=>setTimeout(r,ms));const until=async fn=>{for(let i=0;i<160;i++){if(fn())return;await pause(100);}throw new Error('Workspace flow timeout');};
       const savedFavorites=[...favorites],savedCleanup=[...cleanupSelection];favorites.clear();filter='Todos';search='';catalogStatus='all';catalogView='cards';await navigate('adjustments');
@@ -179,6 +189,19 @@ async function runSmoke() {
       if(document.documentElement.scrollWidth>window.innerWidth+1)throw new Error('Horizontal layout overflow');
       return {favorites:true,filters:true,listView:true,individualApply:true,individualUndo:true,sidebar:true,cleanupSelection:true,recoveryFilter:true};
     })()`);
+    const maintenanceFlow=await win.webContents.executeJavaScript(`(async()=>{
+      const pause=ms=>new Promise(r=>setTimeout(r,ms));const until=async fn=>{for(let i=0;i<300;i++){if(fn())return;await pause(100);}throw new Error('Maintenance UI timeout: '+document.querySelector('#toast')?.textContent+' '+JSON.stringify(state.maintenance.state));};
+      await navigate('maintenance');document.querySelector('[data-action="maintenanceInspect"]').click();
+      await until(()=>!document.querySelector('.busy-overlay')&&state.maintenance.memory?.total>0);
+      if(state.maintenance.config.cache.enabled||state.maintenance.config.memory.enabled)throw new Error('Automation should start disabled');
+      document.querySelector('[data-action="maintenanceSave"]').click();await until(()=>document.querySelector('dialog').open);document.querySelector('#dialog-confirm').click();await until(()=>!document.querySelector('.busy-overlay')&&!document.querySelector('dialog').open&&document.querySelector('#toast').textContent.includes('Regras salvas'));
+      manualCacheIds=new Set(['chrome']);render();document.querySelector('[data-action="maintenanceCacheDelete"]').click();await until(()=>document.querySelector('dialog').open);
+      const typed=document.querySelector('#purge-confirmation');if(!typed||!document.querySelector('#dialog-confirm').disabled)throw new Error('Permanent cache cleanup requires typed consent');typed.value='EXCLUIR';typed.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('#dialog-confirm').click();
+      await until(()=>!document.querySelector('.busy-overlay')&&state.maintenance.state.lastCache?.deleted.count===1);
+      if(!document.querySelector('#maintenance-results').textContent.includes('1 arquivo(s) excluído(s)'))throw new Error('Actual cache result not visible');
+      return {memoryRead:true,automationInitiallyOff:true,configSaved:true,typedConsent:true,cacheDeleted:true,fixtureOnly:true,liveAppsTrimmed:false};
+    })()`);
+    if(await fs.readFile(path.join(qaRoot,'maintenance-fixtures','Google','Chrome','User Data','Default','Cache','Cache_Data','keep.psd'),'utf8')!=='protected fixture')throw new Error('Protected cache fixture was modified.');
     const checklist=await win.webContents.executeJavaScript(`(async()=>{
       const pause=ms=>new Promise(r=>setTimeout(r,ms));
       const until=async fn=>{for(let i=0;i<150;i++){if(fn())return;await pause(100);}throw new Error('UI action timeout');};
@@ -250,7 +273,7 @@ async function runSmoke() {
     await win.webContents.executeJavaScript("document.querySelector('[data-page=\"cs2\"]').click()");
     await new Promise(r=>setTimeout(r,250));
     await fs.writeFile(path.join(qaRoot,'cs2.png'),(await win.webContents.capturePage()).toPNG());
-    for(const [page,file] of [['adjustments','catalog.png'],['cleanup','cleanup.png'],['history','recovery.png']]){
+    for(const [page,file] of [['adjustments','catalog.png'],['cleanup','cleanup.png'],['history','recovery.png'],['maintenance','maintenance.png']]){
       await win.webContents.executeJavaScript(`(async()=>{search='';filter='Todos';catalogStatus='all';await navigate('${page}');})()`);
       await new Promise(r=>setTimeout(r,200));
       await fs.writeFile(path.join(qaRoot,file),(await win.webContents.capturePage()).toPNG());
@@ -276,7 +299,7 @@ async function runSmoke() {
       const results=[];const original=document.body.classList.contains('sidebar-compact');
       for(const compact of [false,true]){
         document.body.classList.toggle('sidebar-compact',compact);
-        for(const id of ['dashboard','adjustments','cleanup','history']){
+        for(const id of ['dashboard','adjustments','cleanup','history','maintenance']){
           await navigate(id);const overflow=document.documentElement.scrollWidth>innerWidth+1;
           if(overflow)throw new Error('Layout overflow at '+id+' with compact='+compact);
           const settings=document.querySelector('.sidebar-bottom').getBoundingClientRect();if(settings.bottom>innerHeight+1)throw new Error('Settings inaccessible');
@@ -287,7 +310,7 @@ async function runSmoke() {
     })()`);
     await fs.writeFile(path.join(qaRoot,'catalog-small.png'),(await win.webContents.capturePage()).toPNG());
     win.setSize(1440,1060);
-    const report={ok:true,workspace:workspaceFlow,responsive,checklist,cs2:cs2Flow,connection:connectionFlow,updateNotice,packaged:app.isPackaged,os:state.info.os,settings:state.settings.length,profiles:state.profiles.length,startup:startup.length,drivers:drivers.items.length,optionalApps:packages.length,services:services.length,tasks:tasks.length,network,bootLogAvailable:boot.available,timerMs:timer.currentMs,logitechDevices:hid.length,hardware:advanced.metrics,lightTheme:light,changes:store.data.journal.filter(j=>['applied','pending'].includes(j.status)).length,results};
+    const report={ok:true,maintenance:maintenanceFlow,workspace:workspaceFlow,responsive,checklist,cs2:cs2Flow,connection:connectionFlow,updateNotice,packaged:app.isPackaged,os:state.info.os,settings:state.settings.length,profiles:state.profiles.length,startup:startup.length,drivers:drivers.items.length,optionalApps:packages.length,services:services.length,tasks:tasks.length,network,bootLogAvailable:boot.available,timerMs:timer.currentMs,logitechDevices:hid.length,hardware:advanced.metrics,lightTheme:light,changes:store.data.journal.filter(j=>['applied','pending'].includes(j.status)).length,results};
     await fs.writeFile(path.join(qaRoot,'smoke.json'),JSON.stringify(report,null,2));
     console.log(JSON.stringify(report));app.quit();
   }catch(e){console.error(e);try{await bridge.call('cleanupTestRegistry');}catch{}app.exit(1);}
@@ -300,6 +323,11 @@ app.whenReady().then(async()=>{
   engine=new Engine(store,bridge);
   cleanup=new DiskTools(process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local'),path.join(app.getPath('userData'),'quarantine'),store,bridge);
   advanced=new Advanced(engine,store,bridge);updates=new Updates(app,store);
+  maintenanceBridge=new WindowsBridge(bridge.script);
+  const maintenanceLocal=smoke?path.join(qaRoot,'maintenance-fixtures'):process.env.LOCALAPPDATA||path.join(os.homedir(),'AppData','Local');
+  if(smoke){store.data.maintenance=null;await fs.mkdir(path.join(maintenanceLocal,'Temp'),{recursive:true});const cache=path.join(maintenanceLocal,'Google','Chrome','User Data','Default','Cache','Cache_Data');await fs.mkdir(cache,{recursive:true});await fs.writeFile(path.join(cache,'hero-fixture_0'),'disposable cache fixture');await fs.writeFile(path.join(cache,'keep.psd'),'protected fixture');}
+  maintenance=new Maintenance(engine,store,maintenanceBridge,maintenanceLocal,path.join(app.getPath('userData'),'quarantine'),()=>powerMonitor.getSystemIdleTime());
+  if(smoke){maintenance.disk.bridge={call:async action=>{if(action==='processes')return [];throw new Error('Fixture bridge only inventories an empty application set.');}};for(const cleaner of maintenance.disk.cleaners.values())cleaner.clock=()=>Date.now()+8*86400000;}
   cs2=new CS2(engine,store,bridge);connection=new Connection(bridge.script,store,bridge);
   const nativeSnapshot=advanced.snapshot.bind(advanced),nativeWrite=advanced.write.bind(advanced);
   advanced.snapshot=async(kind,id)=>{if(kind==='qos')return connection.qosSnapshot(id);if(kind!=='mouseDpi')return nativeSnapshot(kind,id);const [device,index]=id.split(':');await logitech.list();return (await logitech.inspect(device,Number(index))).dpi;};
@@ -314,8 +342,8 @@ app.whenReady().then(async()=>{
   const focusRecovery=await advanced.restoreFocus();engine.lastFocus.errors.push(...focusRecovery.errors);
   try{advanced.metrics=await advanced.call('metrics');}catch(e){advanced.metrics={error:e.message};}
   ipcMain.handle('hero:request',async(event,action,data={})=>{
-    try{validateSender(event);if(typeof action!=='string'||!Object.hasOwn(actions,action))throw new Error('Operação não permitida.');object(data);if(smoke&&!['state','telemetry','refresh','apply','profile','revert','revertAll','startup','power','drivers','packages','resources','timer','mouseStart','mouseRead','mouseStop','logitechDevices','logitechInfo','boot','cs2Activate','cs2Deactivate','cs2Resume','connectionRun'].includes(action))throw new Error('Modo de verificação: esta ação real está bloqueada.');return {ok:true,result:await actions[action](data)};}
-    catch(e){return {ok:false,error:e.message};}
+    try{validateSender(event);if(typeof action!=='string'||!Object.hasOwn(actions,action))throw new Error('Operação não permitida.');object(data);if(smoke&&!['state','telemetry','refresh','apply','profile','revert','revertAll','startup','power','drivers','packages','resources','timer','mouseStart','mouseRead','mouseStop','logitechDevices','logitechInfo','boot','maintenanceInspect','maintenanceConfigure','maintenanceCache','cs2Activate','cs2Deactivate','cs2Resume','connectionRun'].includes(action))throw new Error('Modo de verificação: esta ação real está bloqueada.');return {ok:true,result:await actions[action](data)};}
+    catch(e){if(smoke)console.error('SMOKE ACTION ERROR:',action,e.message);return {ok:false,error:e.message};}
   });
   win=new BrowserWindow({width:1440,height:smoke?1060:960,minWidth:1040,minHeight:740,backgroundColor:'#0c0f14',title:inspectQA?'Hero Boost — Verificação isolada':'Hero Boost',icon:path.join(__dirname,'..','ui','assets','icon.png'),autoHideMenuBar:true,show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,backgroundThrottling:!smoke,offscreen:smoke&&!inspectQA,devTools:!app.isPackaged}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -327,7 +355,7 @@ app.whenReady().then(async()=>{
   win.once('ready-to-show',()=>{if(!smoke||inspectQA)win.show();});
   await win.loadFile(index);
   hardwareTimer=setInterval(async()=>{if(hardwareBusy)return;hardwareBusy=true;try{advanced.metrics=await advanced.call('metrics');}catch(e){advanced.metrics={error:e.message};}finally{hardwareBusy=false;}},5000);
-  if(!smoke){updates.start();win.on('focus',()=>updates.checkIfDue().catch(()=>{}));}
+  if(!smoke){updates.start();maintenance.start();win.on('focus',()=>updates.checkIfDue().catch(()=>{}));}
   focusInterval=setInterval(()=>{
     if(queueTick||!store.data.focusEnabled)return;queueTick=true;
     engine.serialize(()=>engine.focusTick()).catch(e=>{engine.lastFocus.errors=[e.message];}).finally(()=>{queueTick=false;});
@@ -336,7 +364,7 @@ app.whenReady().then(async()=>{
 }).catch(error=>{dialog.showErrorBox('Hero Boost — inicialização',error.message);app.exit(1);});
 app.on('window-all-closed',()=>app.quit());
 app.on('before-quit',event=>{
-  if(quitting)return;event.preventDefault();quitting=true;clearInterval(focusInterval);clearInterval(hardwareTimer);updates?.stop();
-  const timeout=setTimeout(()=>{bridge?.close();app.exit(0);},12000);
-  (engine?engine.serialize(()=>engine.setFocus(false)):Promise.resolve()).then(async()=>{if(smoke)await bridge.call('cleanupTestRegistry');}).catch(()=>{}).finally(()=>{clearTimeout(timeout);bridge?.close();app.quit();});
+  if(quitting)return;event.preventDefault();quitting=true;clearInterval(focusInterval);clearInterval(hardwareTimer);updates?.stop();maintenance?.stop();
+  const timeout=setTimeout(()=>{bridge?.close();maintenanceBridge?.close();app.exit(0);},12000);
+  (engine?engine.serialize(()=>engine.setFocus(false)):Promise.resolve()).then(async()=>{if(smoke)await bridge.call('cleanupTestRegistry');}).catch(()=>{}).finally(()=>{clearTimeout(timeout);bridge?.close();maintenanceBridge?.close();app.quit();});
 });

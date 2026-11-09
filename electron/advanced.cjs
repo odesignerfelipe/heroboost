@@ -1,6 +1,7 @@
 'use strict';
 const {randomUUID}=require('node:crypto');
 const {isProtectedProcess}=require('./engine.cjs');
+const {workProtected}=require('./workloads.cjs');
 const array=value=>(Array.isArray(value)?value:value?[value]:[]).filter(item=>item!==null&&item!==undefined);
 const stable=value=>JSON.stringify(value);
 const serviceValue=s=>s?{start:s.start,state:s.state,delayed:s.start==='Auto'?s.delayed:false}:null;
@@ -8,7 +9,7 @@ class Advanced {
   constructor(engine,store,bridge){
     this.engine=engine;this.store=store;this.bridge=bridge;this.metrics={};
     store.data.backgroundApps ||= [];
-    store.data.focusOptions={priority:'AboveNormal',pauseServices:false,timer:false,...store.data.focusOptions};
+    store.data.focusOptions={priority:'AboveNormal',pauseServices:false,timer:false,foregroundOnly:false,...store.data.focusOptions};
     store.data.restorePoint ||= {attempted:false,created:false,error:null};
     engine.revertAdvanced=entry=>this.revert(entry);
     const tick=engine.focusTick.bind(engine);engine.focusTick=async()=>{await tick();await this.syncFocus();};
@@ -72,7 +73,8 @@ class Advanced {
   async configureFocus(options){
     if(!options||!['AboveNormal','High'].includes(options.priority)||typeof options.timer!=='boolean'||typeof options.pauseServices!=='boolean')throw new Error('Opções de foco inválidas.');
     if(options.pauseServices)this.admin();
-    this.store.data.focusOptions={priority:options.priority,timer:options.timer,pauseServices:options.pauseServices};await this.store.save();
+    if(options.foregroundOnly!==undefined&&typeof options.foregroundOnly!=='boolean')throw new Error('Modo de janela inválido.');
+    this.store.data.focusOptions={priority:options.priority,timer:options.timer,pauseServices:options.pauseServices,foregroundOnly:options.foregroundOnly??false};await this.store.save();
     await this.engine.setFocus(false);return true;
   }
   async restoreFocus(){
@@ -92,7 +94,7 @@ class Advanced {
     for(const entry of this.store.data.journal.filter(j=>j.scope==='focus'&&j.type==='priority'&&['applied','pending'].includes(j.status))){
       if(!background.has(entry.process.path.toLowerCase()))await this.engine.revert(entry.id);
     }
-    for(const p of processes.filter(p=>background.has(p.path.toLowerCase())&&!targets.has(p.path.toLowerCase())&&!isProtectedProcess(p))){
+    for(const p of processes.filter(p=>background.has(p.path.toLowerCase())&&!targets.has(p.path.toLowerCase())&&!workProtected(p))){
       if(!['Normal','AboveNormal'].includes(p.priority))continue;
       if(this.store.data.journal.some(j=>j.type==='priority'&&j.process.id===p.id&&j.process.started===p.started&&['applied','pending'].includes(j.status)))continue;
       const entry=await this.engine.record('priority','Segundo plano: '+p.name,p.priority,'BelowNormal',{process:p,scope:'focus'});

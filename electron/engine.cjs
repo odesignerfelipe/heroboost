@@ -93,7 +93,8 @@ class Engine {
   async focusTick() {
     if(!this.store.data.focusEnabled)return;
     const processes=await this.bridge.call('processes');const targets=new Set(this.store.data.focusApps.map(a=>a.path.toLowerCase()));
-    const active=processes.filter(p=>targets.has(p.path.toLowerCase()));const errors=[];
+    const foreground=processes.find(p=>p.foreground)?.path?.toLowerCase();
+    const active=processes.filter(p=>targets.has(p.path.toLowerCase())&&(!this.store.data.focusOptions?.foregroundOnly||p.path.toLowerCase()===foreground));const activePaths=new Set(active.map(p=>p.path.toLowerCase()));const errors=[];
     for(const p of active) {
       if(isProtectedProcess(p))continue;
       const desired=this.store.data.focusOptions?.priority||'AboveNormal';
@@ -105,7 +106,7 @@ class Engine {
     for(const entry of this.store.data.journal.filter(j=>j.type==='priority'&&['applied','pending'].includes(j.status))) {
       if(entry.scope==='focus')continue;
       const p=processes.find(p=>p.id===entry.process.id&&p.started===entry.process.started);
-      if(!p||!targets.has(p.path.toLowerCase())) {try {await this.revert(entry.id);}catch(e){errors.push(e.message);}}
+      if(!p||!activePaths.has(p.path.toLowerCase())) {try {await this.revert(entry.id);}catch(e){errors.push(e.message);}}
     }
     this.lastFocus={active:active.map(p=>({name:this.store.data.focusApps.find(a=>a.path.toLowerCase()===p.path.toLowerCase())?.name||p.name,processName:p.name,id:p.id,path:p.path,priority:p.priority})),errors};
   }

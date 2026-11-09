@@ -67,6 +67,14 @@ test('PID reuse does not restore a different process',async()=>{
   await f.engine.setFocus(true);f.setProcesses([{id:10,path:'C:\\Games\\game.exe',started:'new',name:'game',priority:'High'}]);
   await f.engine.setFocus(false);assert.equal(f.processes[0].priority,'High');
 });
+
+test('foreground focus follows the active chosen application and restores on switching away',async()=>{
+  const f=fixture();f.store.data.focusOptions={priority:'AboveNormal',foregroundOnly:true};f.store.data.focusApps=[{path:'C:\\Apps\\Photoshop.exe'},{path:'C:\\Apps\\AfterFX.exe'}];
+  const processes=[{id:1,path:'C:\\Apps\\Photoshop.exe',name:'Photoshop',started:'a',priority:'Normal',foreground:true},{id:2,path:'C:\\Apps\\AfterFX.exe',name:'AfterFX',started:'b',priority:'Normal',foreground:false}];f.setProcesses(processes);
+  await f.engine.setFocus(true);assert.equal(processes[0].priority,'AboveNormal');assert.equal(processes[1].priority,'Normal');
+  processes[0].foreground=false;processes[1].foreground=true;await f.engine.focusTick();assert.equal(processes[0].priority,'Normal');assert.equal(processes[1].priority,'AboveNormal');
+  processes[1].foreground=false;await f.engine.focusTick();assert.equal(processes[1].priority,'Normal');assert.equal(f.engine.lastFocus.active.length,0);
+});
 test('serializes changes and survives a rejected operation',async()=>{
   const f=fixture();const order=[];
   const first=f.engine.serialize(async()=>{await new Promise(r=>setTimeout(r,20));order.push(1);throw new Error('failure');});

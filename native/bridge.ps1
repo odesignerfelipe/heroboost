@@ -10,6 +10,7 @@ $catalog=Get-Content -LiteralPath (Join-Path $PSScriptRoot 'settings.json') -Raw
 foreach($item in $catalog){if($TestRegistryRoot){$item.path=$TestRegistryRoot+'\'+$item.id;$item.hive='HKCU'};$allowed[$item.id]=$item}
 . (Join-Path $PSScriptRoot 'advanced.ps1')
 . (Join-Path $PSScriptRoot 'network.ps1')
+. (Join-Path $PSScriptRoot 'performance.ps1')
 function Get-RegValue($subkey, $name, $hive='HKCU') {
   $base=if($hive -eq 'HKLM'){[Microsoft.Win32.Registry]::LocalMachine}else{[Microsoft.Win32.Registry]::CurrentUser}
   $key = $base.OpenSubKey($subkey)
@@ -95,8 +96,9 @@ while ($null -ne ($line = [Console]::ReadLine())) {
         $result = Get-Plans
       }
       'processes' {
+        Initialize-HeroPerformance;$foreground=[HeroBoost.Performance]::Foreground()
         $result = @(Get-Process | ForEach-Object {
-          try {if ($_.Path -and $_.SessionId -eq [System.Diagnostics.Process]::GetCurrentProcess().SessionId) { @{id=$_.Id; path=$_.Path; name=$_.ProcessName; started=$_.StartTime.ToUniversalTime().ToString('o'); priority=$_.PriorityClass.ToString()} }} catch {}
+          try {if ($_.Path -and $_.SessionId -eq [System.Diagnostics.Process]::GetCurrentProcess().SessionId) { @{id=$_.Id; path=$_.Path; name=$_.ProcessName; started=$_.StartTime.ToUniversalTime().ToString('o'); priority=$_.PriorityClass.ToString();foreground=($_.Id -eq $foreground)} }} catch {}
         })
       }
       'priority' {
@@ -108,6 +110,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
       }
       'advanced' {$result=Invoke-HeroAdvanced $d.operation $d.payload}
       'network' {$result=Invoke-HeroNetwork $d.operation $d.payload}
+      'performance' {$result=Invoke-HeroPerformance $d.operation $d.payload}
       'cleanupTestRegistry' {if(-not $TestRegistryRoot){throw 'Esta operação exige uma raiz de teste.'};[Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree($TestRegistryRoot,$false);$result=$true}
       default { throw 'Operação não permitida.' }
     }

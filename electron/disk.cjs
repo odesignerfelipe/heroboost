@@ -2,6 +2,7 @@
 const fs=require('node:fs/promises');
 const path=require('node:path');
 const {Cleanup,inside}=require('./cleanup.cjs');
+const {activeWorkloads}=require('./workloads.cjs');
 class DiskTools {
   constructor(local,directory,store,bridge){
     this.store=store;this.bridge=bridge;this.sources=[
@@ -18,28 +19,29 @@ class DiskTools {
     const values=[];for(const source of this.sources){try{const stat=await fs.lstat(source.root);if(stat.isDirectory()&&!stat.isSymbolicLink())values.push({id:source.id,name:source.name});}catch{}}
     return values;
   }
-  async scan(ids=['temp']){
+  async scan(ids=['temp'],options={}){
     if(!Array.isArray(ids)||!ids.length||ids.length>this.sources.length||ids.some(id=>!this.cleaners.has(id)))throw new Error('Seleção de limpeza inválida.');
     const processes=await this.bridge.call('processes');const names=new Set((Array.isArray(processes)?processes:[]).map(p=>p.name.toLowerCase()));
     const results=[];this.selection=[];
     for(const id of new Set(ids)){
       const source=this.sources.find(s=>s.id===id);
+      if(['temp','shader','nvidia'].includes(id)&&activeWorkloads(processes,this.store.data.focusApps||[]).length){results.push({id,name:source.name,count:0,bytes:0,skipped:0,blocked:'Feche os aplicativos de criação/jogos prioritários antes de limpar temporários ou shaders.'});continue;}
       if(source.process&&names.has(source.process)){results.push({id,name:source.name,count:0,bytes:0,skipped:0,blocked:'Feche o navegador antes de limpar seu cache.'});continue;}
-      try{const scan=await this.cleaners.get(id).scan();results.push({...scan,id,name:source.name});this.selection.push(id);}catch(e){results.push({id,name:source.name,count:0,bytes:0,skipped:1,blocked:e.message});}
+      try{const scan=await this.cleaners.get(id).scan(options);results.push({...scan,id,name:source.name});this.selection.push(id);}catch(e){results.push({id,name:source.name,count:0,bytes:0,skipped:1,blocked:e.message});}
     }
     return {count:results.reduce((sum,s)=>sum+s.count,0),bytes:results.reduce((sum,s)=>sum+s.bytes,0),skipped:results.reduce((sum,s)=>sum+s.skipped,0),truncated:results.some(s=>s.truncated),sources:results};
   }
-  async isolate(){
+  async isolate(options={}){
     if(!this.selection.length)throw new Error('Faça uma análise antes de limpar.');
     const result={count:0,bytes:0,skipped:0};
     // Recheck running browsers immediately before touching any cached file.
     const processes=await this.bridge.call('processes');const names=new Set((Array.isArray(processes)?processes:[]).map(p=>p.name.toLowerCase()));
-    for(const id of this.selection){const s=this.sources.find(s=>s.id===id);if(s.process&&names.has(s.process)){result.skipped++;continue;}const cleaner=this.cleaners.get(id);if(!cleaner.candidates.size)continue;const r=await cleaner.isolate();for(const key of Object.keys(result))result[key]+=r[key];}
+    for(const id of this.selection){const s=this.sources.find(s=>s.id===id);if(options.shouldContinue&&!options.shouldContinue())break;if(s.process&&names.has(s.process)||['temp','shader','nvidia'].includes(id)&&activeWorkloads(processes,this.store.data.focusApps||[]).length){result.skipped++;continue;}const cleaner=this.cleaners.get(id);if(!cleaner.candidates.size)continue;const r=await cleaner.isolate({...options,maxFiles:options.maxFiles?Math.max(0,options.maxFiles-result.count):undefined,maxBytes:options.maxBytes?Math.max(0,options.maxBytes-result.bytes):undefined});for(const key of Object.keys(result))result[key]+=r[key];if(options.maxFiles&&result.count>=options.maxFiles||options.maxBytes&&result.bytes>=options.maxBytes)break;}
     this.selection=[];return result;
   }
   async recoverPending(){for(const cleaner of this.cleaners.values())await cleaner.recoverPending();}
   async restore(){const result={count:0,skipped:0};for(const cleaner of this.cleaners.values()){const r=await cleaner.restore();result.count+=r.count;result.skipped+=r.skipped;}return result;}
-  async purge(confirmation){const result={count:0,bytes:0,skipped:0};for(const cleaner of this.cleaners.values()){const r=await cleaner.purge(confirmation);for(const key of Object.keys(result))result[key]+=r[key];}return result;}
+  async purge(confirmation,options={}){const result={count:0,bytes:0,skipped:0};for(const cleaner of this.cleaners.values()){const r=await cleaner.purge(confirmation,options);for(const key of Object.keys(result))result[key]+=r[key];}return result;}
 }
 async function analyzeDirectory(root,{maxEntries=50000,timeLimit=15000}={}){
   root=path.resolve(root);const canonical=await fs.realpath(root);
